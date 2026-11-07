@@ -1,0 +1,6 @@
+SULMOS26 V28 CASH OFFICE — OFFICIAL USER-SUPPLIED LOGO
+
+Only replaces files in public-cash/. Keep existing src/index.ts, migrations, database, and the green/red apps untouched.
+Upload the public-cash files preserving their subfolder paths. Commit to main, run Deploy SULMOS26 Cash Office (Separate Worker). Open Cash Office directly in Chrome, refresh. If an installed shortcut still shows an older icon, uninstall that shortcut and install Cash Office again from Chrome.
+
+Branding: exact supplied wide logo on sign-in and workspace header; recognisable cropped mark from same source on yellow installation icon.

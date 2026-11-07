@@ -1,1 +1,31 @@
-{"name":"SULMOS26 Cash Office","short_name":"SULMOS26 Cash","description":"Cashier payment workspace","start_url":"/","display":"standalone","background_color":"#f3f6f8","theme_color":"#102a33","icons":[{"src":"/assets/cash-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+  "id": "/",
+  "name": "SULMOS26 Cash Office",
+  "short_name": "SULMOS26 Cash",
+  "description": "SULMOS26 Cash Office - secure cashier workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFC300",
+  "icons": [
+    {
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
