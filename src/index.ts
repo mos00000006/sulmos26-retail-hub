@@ -10,7 +10,20 @@ const clean=(v:unknown,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
 const hex=(buf:ArrayBuffer)=>Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
 const rand=(n=32)=>{const a=crypto.getRandomValues(new Uint8Array(n));return Array.from(a).map(x=>x.toString(16).padStart(2,'0')).join('')};
 async function hash(text:string){return hex(await crypto.subtle.digest('SHA-256',encoder.encode(text)))}
-async function passwordHash(pass:string,salt:string){const key=await crypto.subtle.importKey('raw',encoder.encode(pass),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:210000,hash:'SHA-256'},key,256))}
+// Cloudflare workerd currently rejects a single PBKDF2 call above 100,000 iterations.
+// To preserve a meaningful work factor without exceeding that runtime cap, chain
+// six independently domain-separated 100k PBKDF2-SHA-256 calls. Every new
+// credential uses the v2 prefix so the algorithm can be upgraded explicitly.
+// A dedicated, vetted password-hashing service (Argon2id) is recommended prior
+// to offering Sulmos26 commercially to unrelated customer organisations.
+async function passwordHash(pass:string,salt:string){
+ let material: ArrayBuffer=encoder.encode(pass).buffer as ArrayBuffer;
+ for(let round=0;round<6;round++){
+  const key=await crypto.subtle.importKey('raw',material,'PBKDF2',false,['deriveBits']);
+  material=await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(`sulmos26:v2:${round}:${salt}`),iterations:100000,hash:'SHA-256'},key,256);
+ }
+ return 'v2$'+hex(material);
+}
 // A fresh customer installation is locked until the private bootstrap key is configured.
 // Keep the key out of source code, URLs and browser storage; this header is sent only on first setup.
 function validSetupToken(provided:string|null, secret:string|undefined){
