@@ -1,6 +1,6 @@
 import {ROLES, DOC_TYPES, permission, validLines, validMoney, canApprove} from './logic.mjs';
 interface Env { DB: D1Database; ASSETS: Fetcher; SULMOS26_SETUP_TOKEN?: string }
-type User = {id:string;name:string;email:string;role:string;active:number};
+type User = {id:string;name:string;email:string;username:string|null;role:string;active:number};
 const encoder=new TextEncoder();
 const json=(data:unknown,status=200,headers:Record<string,string>={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff',...headers}});
 const fail=(message:string,status=400)=>json({error:message},status);
@@ -36,28 +36,31 @@ function validSetupToken(provided:string|null, secret:string|undefined){
 const cookie=(token:string,secure:boolean)=>`sulmos_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${secure?'; Secure':''}`;
 const expiredCookie=(secure:boolean)=>`sulmos_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure?'; Secure':''}`;
 function guardOrigin(req:Request){const origin=req.headers.get('Origin'); if(origin && origin !== new URL(req.url).origin) return false;const site=req.headers.get('Sec-Fetch-Site');return !site || ['same-origin','none'].includes(site)}
-async function auth(req:Request,db:D1Database):Promise<User|null>{const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(!token)return null;const digest=await hash(token);return await db.prepare("SELECT u.id,u.name,u.email,u.role,u.active FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1").bind(digest,now()).first<User>()}
+async function auth(req:Request,db:D1Database):Promise<User|null>{const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(!token)return null;const digest=await hash(token);return await db.prepare("SELECT u.id,u.name,u.email,u.username,u.role,u.active FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1").bind(digest,now()).first<User>()}
 async function body(req:Request){if(!req.headers.get('content-type')?.toLowerCase().includes('application/json'))throw Error('JSON content type required');const raw=await req.text();if(raw.length>500000)throw Error('Payload too large');return JSON.parse(raw) as Record<string,unknown>}
 async function log(db:D1Database,who:string|null,action:string,entity:string,id:string,details=''){await db.prepare('INSERT INTO audit_log(id,actor_id,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)').bind(uid(),who,action,entity,id,details.slice(0,1000),now()).run()}
 async function scopedStore(db:D1Database,u:User,storeId:string){const store=await db.prepare('SELECT id FROM stores WHERE id=? AND active=1').bind(storeId).first();if(!store)return false;if(['owner','manager'].includes(u.role))return true;return !!await db.prepare('SELECT 1 FROM user_stores WHERE user_id=? AND store_id=?').bind(u.id,storeId).first()}
 async function rows<T>(db:D1Database,query:string,...params:unknown[]){return (await db.prepare(query).bind(...params).all<T>()).results}
 async function createSession(db:D1Database,userId:string,req:Request){const token=rand();await db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').bind(await hash(token),userId,new Date(Date.now()+43200000).toISOString(),now()).run();return {'set-cookie':cookie(token,new URL(req.url).protocol==='https:')}}
 const summary=(r:Record<string,unknown>)=>r;
+const validUsername=(x:string)=>/^[a-z][a-z0-9._-]{2,39}$/.test(x);
+const internalMemberEmail=(username:string)=>`${username}@members.sulmos26.invalid`; // internal database value, not a mailbox
+
 export default {async fetch(req:Request,env:Env):Promise<Response>{
  const url=new URL(req.url);const path=url.pathname;
  // Read-only version marker, independent of D1 and any owner credentials.
  // If this URL returns 404, the diagnostic build was not deployed to this Worker.
- if(path==='/api/version' && req.method==='GET')return json({application:'Sulmos26 Retail Hub',version:'V8-SETUP-REPAIR'});
+ if(path==='/api/version' && req.method==='GET')return json({application:'Sulmos26 Retail Hub',version:'V9-USERNAME-LOGIN'});
  // Safe public preflight: never returns installation tokens, account details or raw database errors.
  if(path==='/api/setup-check' && req.method==='GET'){
-  if(!env.DB || typeof env.DB.prepare!=='function')return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_BINDING_MISSING',message:'Cloudflare Worker is missing its DB binding.'},503);
+  if(!env.DB || typeof env.DB.prepare!=='function')return json({version:'V9-USERNAME-LOGIN',ready:false,code:'DB_BINDING_MISSING',message:'Cloudflare Worker is missing its DB binding.'},503);
   try{
    const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','business','sessions','audit_log')").all<{name:string}>();
    const present=new Set((tables.results||[]).map(x=>x.name));
-   if(['users','business','sessions','audit_log'].some(name=>!present.has(name)))return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_MIGRATION_REQUIRED',message:'Database schema is incomplete. Apply the D1 migrations.'},503);
+   if(['users','business','sessions','audit_log'].some(name=>!present.has(name)))return json({version:'V9-USERNAME-LOGIN',ready:false,code:'DB_MIGRATION_REQUIRED',message:'Database schema is incomplete. Apply the D1 migrations.'},503);
    const owner=await env.DB.prepare('SELECT id FROM users LIMIT 1').first();
-   return json({version:'V8-SETUP-REPAIR',ready:true,setupRequired:!owner,code:owner?'OWNER_EXISTS':'READY_TO_CREATE_OWNER'});
-  }catch(e){console.error('SULMOS26_PREFLIGHT_DB',e instanceof Error?e.name:'unknown');return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_CHECK_FAILED',message:'Database could not be queried. Verify D1 binding and schema.'},503)}
+   return json({version:'V9-USERNAME-LOGIN',ready:true,setupRequired:!owner,code:owner?'OWNER_EXISTS':'READY_TO_CREATE_OWNER'});
+  }catch(e){console.error('SULMOS26_PREFLIGHT_DB',e instanceof Error?e.name:'unknown');return json({version:'V9-USERNAME-LOGIN',ready:false,code:'DB_CHECK_FAILED',message:'Database could not be queried. Verify D1 binding and schema.'},503)}
  }
  if(!path.startsWith('/api/'))return env.ASSETS.fetch(req);
  if(req.method!=='GET' && (!guardOrigin(req)||req.headers.get('content-type')?.split(';')[0]!=='application/json'))return fail('Request blocked: invalid origin or content type',403);
@@ -67,8 +70,8 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  if(path==='/api/setup' && req.method==='POST'){
   if(!validSetupToken(req.headers.get('x-sulmos26-setup-token'),env.SULMOS26_SETUP_TOKEN))
    return fail('Owner setup is locked. Check the private installation key supplied by your Sulmos26 administrator.',403);
-  const b=await body(req);const business=clean(b.business,120),name=clean(b.name,100),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200);
-  if(!business||!name||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12)return fail('Business name, owner name, valid email, and password of at least 12 characters are required');
+  const b=await body(req);const business=clean(b.business,120),name=clean(b.name,100),email=clean(b.email,180).toLowerCase(),username=clean(b.username,40).toLowerCase(),pass=clean(b.password,200);
+  if(!business||!name||!validUsername(username)||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12)return fail('Business name, owner name, username (3–40 letters, digits, dots, underscores, hyphens), email, and password (12+ characters) are required');
   // A previous setup may have committed the owner before the session cookie failed.
   // Never overwrite an existing owner or repeat initialisation on this endpoint.
   // The session endpoint uses this table too, but classify a bootstrap read failure.
@@ -85,7 +88,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    return fail('Secure password setup failed (SETUP_HASH). Ask the administrator to check Cloudflare Worker logs.',503);
   }
   try{await db.batch([
-   db.prepare('INSERT INTO users(id,name,email,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?)').bind('owner',name,email,salt,hashPass,'owner',timestamp),
+   db.prepare('INSERT INTO users(id,name,email,username,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?,?)').bind('owner',name,email,username,salt,hashPass,'owner',timestamp),
    db.prepare('INSERT INTO business(id,name,trading_name,created_at) VALUES(?,?,?,?)').bind('primary',business,business,timestamp),
    db.prepare('INSERT INTO audit_log(id,actor_id,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)').bind(uid(),'owner','setup','business','primary','Fresh customer installation',timestamp)
   ]);}catch(e){
@@ -97,26 +100,32 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   }
   try{
    const headers=await createSession(db,'owner',req);
-   return json({ok:true,user:{id:'owner',name,email,role:'owner'}},201,headers);
+   return json({ok:true,user:{id:'owner',name,email,username,role:'owner'}},201,headers);
   }catch(e){
    console.error('SULMOS26_SETUP_SESSION',e instanceof Error?e.name:'unknown');
    return fail('The owner was saved, but automatic sign-in failed (SETUP_SESSION). Refresh the page and try signing in.',503);
   }
  }
  if(path==='/api/login' && req.method==='POST'){
-  const b=await body(req),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200);
-  const key=await hash('login:'+email);const attempt=await db.prepare('SELECT attempts,blocked_until FROM login_attempts WHERE identifier=?').bind(key).first<{attempts:number;blocked_until:string|null}>();
+  const b=await body(req),identifier=clean(b.username||b.email,180).toLowerCase(),pass=clean(b.password,200);
+  if(!identifier||!pass)return fail('Enter your username and password',400);
+  const key=await hash('login:'+identifier);const attempt=await db.prepare('SELECT attempts,blocked_until FROM login_attempts WHERE identifier=?').bind(key).first<{attempts:number;blocked_until:string|null}>();
   if(attempt?.blocked_until && attempt.blocked_until>now())return fail('Too many attempts. Try again later.',429);
-  const user=await db.prepare('SELECT * FROM users WHERE email=? AND active=1').bind(email).first<User & {password_hash:string;password_salt:string}>();
+  const user=await db.prepare('SELECT * FROM users WHERE (username=? OR email=?) AND active=1').bind(identifier,identifier).first<User & {password_hash:string;password_salt:string}>();
   const actual=await passwordHash(pass,user?.password_salt||'unregistered_salt'),good=!!user&&actual===user.password_hash;
-  if(!good){const count=(attempt?.attempts||0)+1;const block=count>=6?new Date(Date.now()+15*60000).toISOString():null;await db.prepare('INSERT INTO login_attempts(identifier,attempts,blocked_until,updated_at) VALUES(?,?,?,?) ON CONFLICT(identifier) DO UPDATE SET attempts=excluded.attempts,blocked_until=excluded.blocked_until,updated_at=excluded.updated_at').bind(key,count,block,now()).run();return fail('Invalid email or password',401)}
+  if(!good){const count=(attempt?.attempts||0)+1;const block=count>=6?new Date(Date.now()+15*60000).toISOString():null;await db.prepare('INSERT INTO login_attempts(identifier,attempts,blocked_until,updated_at) VALUES(?,?,?,?) ON CONFLICT(identifier) DO UPDATE SET attempts=excluded.attempts,blocked_until=excluded.blocked_until,updated_at=excluded.updated_at').bind(key,count,block,now()).run();return fail('Invalid username or password',401)}
   await db.prepare('DELETE FROM login_attempts WHERE identifier=?').bind(key).run();
-  return json({ok:true,user:{id:user.id,name:user.name,email:user.email,role:user.role}},200,await createSession(db,user.id,req));
+  return json({ok:true,user:{id:user.id,name:user.name,email:user.email,username:user.username,role:user.role}},200,await createSession(db,user.id,req));
  }
  if(path==='/api/logout' && req.method==='POST'){
   const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(token)await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(token)).run();return json({ok:true},200,{'set-cookie':expiredCookie(url.protocol==='https:')});
  }
  const u=await auth(req,db);if(!u)return fail('Sign in required',401);
+ if(path==='/api/my-username'&&req.method==='POST'){
+  if(u.role!=='owner')return fail('Only the owner can set the owner username',403);
+  const b=await body(req),username=clean(b.username,40).toLowerCase();if(!validUsername(username))return fail('Username must be 3–40 letters, numbers, dots, underscores or hyphens');
+  await db.prepare('UPDATE users SET username=? WHERE id=?').bind(username,u.id).run();await log(db,u.id,'update','user',u.id,'Owner username configured');return json({ok:true,username});
+ }
  if(path==='/api/overview'&&req.method==='GET'){
   const data=await db.batch([db.prepare('SELECT COUNT(*) n FROM stores WHERE active=1'),db.prepare('SELECT COUNT(*) n FROM products WHERE active=1'),db.prepare('SELECT COUNT(*) n FROM quotations'),db.prepare('SELECT COUNT(*) n FROM stock_documents'),db.prepare('SELECT COUNT(*) n FROM tasks WHERE status != ?').bind('done')]);
   // D1 batch results are typed as generic rows. This query always returns COUNT(*) AS n.
@@ -136,8 +145,27 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(req.method==='POST'&&permission(u.role,'products','write')){const b=await body(req),name=clean(b.name,180),sku=clean(b.sku,100).toUpperCase(),price=Number(b.price_cents),cost=Number(b.cost_cents||0);if(!name||!sku||!validMoney(price)||!validMoney(cost))return fail('Valid SKU, name, and non-negative prices are required');const id=uid();await db.prepare('INSERT INTO products(id,sku,name,category,description,price_cents,cost_cents,barcode,image_url,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,sku,name,clean(b.category,80),clean(b.description,1000),price,cost,clean(b.barcode,80),clean(b.image_url,500),now()).run();await log(db,u.id,'create','product',id,sku);return json({ok:true,id},201)}
  }
  if(path==='/api/users'){
-  if(req.method==='GET'&&['owner','manager'].includes(u.role))return json({items:await rows(db,'SELECT id,name,email,role,active,created_at FROM users ORDER BY created_at'),assignments:await rows(db,'SELECT user_id,store_id FROM user_stores')});
-  if(req.method==='POST'&&u.role==='owner'){const b=await body(req),name=clean(b.name,100),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200),role=clean(b.role,30),stores=Array.isArray(b.store_ids)?b.store_ids.filter(x=>typeof x==='string').slice(0,50) as string[]:[];if(!name||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12||!ROLES.includes(role)||role==='owner')return fail('Employee name, email, 12-character password, and staff role required');const id=uid(),salt=rand(16);const stmts=[db.prepare('INSERT INTO users(id,name,email,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?)').bind(id,name,email,salt,await passwordHash(pass,salt),role,now())];for(const sid of stores)stmts.push(db.prepare('INSERT INTO user_stores(user_id,store_id) SELECT ?,id FROM stores WHERE id=?').bind(id,sid));await db.batch(stmts);await log(db,u.id,'create','user',id,role);return json({ok:true,id},201)}
+  if(req.method==='GET'&&['owner','manager'].includes(u.role))return json({items:await rows(db,'SELECT id,name,username,role,active,created_at FROM users ORDER BY created_at'),assignments:await rows(db,'SELECT user_id,store_id FROM user_stores')});
+  if(req.method==='POST'&&u.role==='owner'){
+   const b=await body(req),name=clean(b.name,100),username=clean(b.username,40).toLowerCase(),pass=clean(b.password,200),role=clean(b.role,30);
+   const stores=Array.isArray(b.store_ids)?b.store_ids.filter(x=>typeof x==='string').slice(0,50) as string[]:[];
+   if(!name||!validUsername(username)||pass.length<12||!ROLES.includes(role)||role==='owner')return fail('Name, valid username, password of at least 12 characters, and permitted member role are required');
+   const id=uid(),salt=rand(16),email=internalMemberEmail(username);
+   const stmts=[db.prepare('INSERT INTO users(id,name,email,username,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?,?)').bind(id,name,email,username,salt,await passwordHash(pass,salt),role,now())];
+   for(const sid of stores)stmts.push(db.prepare('INSERT INTO user_stores(user_id,store_id) SELECT ?,id FROM stores WHERE id=?').bind(id,sid));
+   await db.batch(stmts);await log(db,u.id,'create','user',id,role);return json({ok:true,id},201);
+  }
+  if(req.method==='PATCH'&&u.role==='owner'){
+   const b=await body(req),id=clean(b.id,64),active=b.active,role=clean(b.role,30),pass=typeof b.password==='string'?b.password:'';
+   if(!id||id===u.id||active!==undefined&&active!==true&&active!==false||role&&(!ROLES.includes(role)||role==='owner')||pass&&pass.length<12)return fail('Invalid member update');
+   const target=await db.prepare("SELECT id FROM users WHERE id=? AND role!='owner'").bind(id).first();if(!target)return fail('Member not found',404);
+   const edits=[] as D1PreparedStatement[];
+   if(active!==undefined){edits.push(db.prepare('UPDATE users SET active=? WHERE id=?').bind(active?1:0,id));if(!active)edits.push(db.prepare('DELETE FROM sessions WHERE user_id=?').bind(id));}
+   if(role)edits.push(db.prepare('UPDATE users SET role=? WHERE id=?').bind(role,id));
+   if(pass){const salt=rand(16);edits.push(db.prepare('UPDATE users SET password_salt=?,password_hash=? WHERE id=?').bind(salt,await passwordHash(pass,salt),id));edits.push(db.prepare('DELETE FROM sessions WHERE user_id=?').bind(id));}
+   if(!edits.length)return fail('No changes provided');
+   await db.batch(edits);await log(db,u.id,'update','user',id,'Member access updated');return json({ok:true});
+  }
  }
  if(path==='/api/stock-documents'){
   if(req.method==='GET'){const items=['owner','manager'].includes(u.role)?await rows(db,'SELECT d.*,s.name store_name FROM stock_documents d JOIN stores s ON s.id=d.store_id ORDER BY d.created_at DESC LIMIT 200'):await rows(db,'SELECT d.*,s.name store_name FROM stock_documents d JOIN stores s ON s.id=d.store_id JOIN user_stores us ON us.store_id=d.store_id WHERE us.user_id=? ORDER BY d.created_at DESC LIMIT 200',u.id);return json({items})}

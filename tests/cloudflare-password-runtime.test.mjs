@@ -27,10 +27,10 @@ const db={prepare(sql){const statement={sql,args:[],bind(...args){this.args=args
  if(sql.startsWith('SELECT attempts,blocked_until'))return null;
  if(sql.startsWith('SELECT * FROM users'))return state.owner&&state.owner.email===this.args[0]?{...state.owner,active:1}:null;
  return null;
- },async run(){if(sql.startsWith('INSERT INTO sessions')){state.session=this.args;return {success:true}};return {success:true}}};return statement;},async batch(stmts){for(const s of stmts){if(s.sql.startsWith('INSERT INTO users')){state.owner={id:s.args[0],name:s.args[1],email:s.args[2],password_salt:s.args[3],password_hash:s.args[4],role:'owner'};}if(s.sql.startsWith('INSERT INTO business'))state.business=s.args;}return stmts.map(()=>({success:true}));}};
+ },async run(){if(sql.startsWith('INSERT INTO sessions')){state.session=this.args;return {success:true}};return {success:true}}};return statement;},async batch(stmts){for(const s of stmts){if(s.sql.startsWith('INSERT INTO users')){state.owner={id:s.args[0],name:s.args[1],email:s.args[2],username:s.args[3],password_salt:s.args[4],password_hash:s.args[5],role:'owner'};}if(s.sql.startsWith('INSERT INTO business'))state.business=s.args;}return stmts.map(()=>({success:true}));}};
 const env={DB:db,SULMOS26_SETUP_TOKEN:'m'.repeat(64),ASSETS:{fetch:()=>new Response('assets')}};
 const origin='https://test.invalid';const req=(path,payload,headers={})=>new Request(origin+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin,...headers},body:JSON.stringify(payload)});
-const payload={business:'My Hardware',name:'Owner',email:'owner@example.test',password:'PasswordOnlyForUnitTest12345'};
+const payload={business:'My Hardware',name:'Owner',username:'owneruser',email:'owner@example.test',password:'PasswordOnlyForUnitTest12345'};
 const setup=await worker.fetch(req('/api/setup',payload,{'x-sulmos26-setup-token':'m'.repeat(64)}),env);
 assert.equal(setup.status,201,JSON.stringify(await setup.clone().json()));assert.equal((await setup.json()).user.role,'owner');
 assert.ok(state.owner.password_hash.startsWith('v2$'));assert.equal(state.owner.password_hash.length,67);

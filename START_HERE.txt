@@ -1,33 +1,22 @@
-SULMOS26 V8 — FIRST OWNER SETUP REPAIR / DIAGNOSTIC PATCH
+SULMOS26 — V9 USERNAME/PASSWORD MEMBER LOGIN PATCH
 
-This patch is made from the project ZIP supplied in this chat.
-It does NOT clear, replace, or migrate your production database.
+This is a PATCH, not a full site backup. Upload the files preserving their folder paths.
+1. In GitHub repository, replace src/index.ts and public/app.js with the supplied files.
+2. Add migrations/0002_member_usernames.sql (do not delete 0001_initial.sql).
+3. Commit to main.
+4. Go to GitHub Actions > Deploy Sulmos26 to Cloudflare > Run workflow.
+   The existing deploy action applies D1 migrations before deploying the Worker.
+5. Verify /api/version reports V9-USERNAME-LOGIN, and /api/setup-check says ready:true.
+6. If setupRequired:true, finish ONE-TIME owner setup using private installation key,
+   business name, full name, username, recovery email, and a NEW password (12+ chars).
+7. If setupRequired:false, log in with your EXISTING owner email and password;
+   open Business settings > Owner sign-in username, save a username.
+8. Go to Staff & access > Add employee. Enter name, username, a NEW 12+ char
+   password, role, and assigned stores. Staff log in with username/password only.
+9. The Manager role is a broad operations role, but cannot add staff. Only Owner
+   can add, deactivate, or reset passwords. Do not share Owner credentials.
+10. Staff passwords MUST NOT be 063269 or any other short or previously shared password.
 
-FILES TO REPLACE IN YOUR EXISTING GITHUB REPOSITORY:
-  src/index.ts
-  public/app.js
-  tests/setup-diagnostics-v7.test.mjs
-
-HOW TO APPLY:
-1. Extract this ZIP on your computer.
-2. Open https://github.com/mos00000006/sulmos26-retail-hub
-3. Upload/replace each file using the same folder paths, then commit to main.
-   IMPORTANT: do not upload the ZIP as one file to the repo.
-4. Open Actions > Deploy Sulmos26 to Cloudflare > Run workflow > main.
-5. Verify the LIVE URL:
-   https://sulmos26-retail-hub.moyanamoses006.workers.dev/api/version
-   EXPECTED: version V8-SETUP-REPAIR
-6. Open this diagnostic URL:
-   https://sulmos26-retail-hub.moyanamoses006.workers.dev/api/setup-check
-   READY_TO_CREATE_OWNER: fill in your setup form
-   OWNER_EXISTS: sign in instead of creating a second owner
-   DB_BINDING_MISSING: Cloudflare DB binding is absent
-   DB_MIGRATION_REQUIRED: D1 database schema needs migrations
-   DB_CHECK_FAILED: check D1 connection/migration in Cloudflare
-7. If setup still fails, copy ONLY the error code (SETUP_HASH / SETUP_WRITE etc.).
-
-Never paste installation key, password, or GitHub secrets into chat.
-Do not delete or recreate your D1 database.
-
-This patch improves diagnosis and eliminates ambiguous setup errors, but
-no one can guarantee a live login fix until the live D1/runtime issue is confirmed.
+If your database preflight says DB_MIGRATION_REQUIRED, inspect the GitHub Deploy
+workflow migration step before retrying. Never delete/reset D1 to fix login.
+This file patch has not been deployed by ChatGPT to your Cloudflare account.

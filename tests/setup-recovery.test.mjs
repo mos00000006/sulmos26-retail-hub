@@ -28,7 +28,7 @@ function makeDB(options={}){
   async batch(items){state.batchCount++;if(options.writeError)throw Error('D1 write fault');state.owner=true;return items.map(()=>({success:true}))}
  };return {db,state};
 }
-async function create(options={},secret=key){const {db,state}=makeDB(options);const env={DB:db,SULMOS26_SETUP_TOKEN:secret,ASSETS:{fetch:()=>new Response('assets')}};const payload={business:'Test Shop',name:'Owner',email:'owner@example.invalid',password:'ExampleLongPassword1234'};const url='https://example.test/api/setup';const req=(k=key)=>new Request(url,{method:'POST',headers:{'content-type':'application/json','x-sulmos26-setup-token':k,'origin':'https://example.test'},body:JSON.stringify(payload)});return {env,state,req};}
+async function create(options={},secret=key){const {db,state}=makeDB(options);const env={DB:db,SULMOS26_SETUP_TOKEN:secret,ASSETS:{fetch:()=>new Response('assets')}};const payload={business:'Test Shop',name:'Owner',username:'owneruser',email:'owner@example.invalid',password:'ExampleLongPassword1234'};const url='https://example.test/api/setup';const req=(k=key)=>new Request(url,{method:'POST',headers:{'content-type':'application/json','x-sulmos26-setup-token':k,'origin':'https://example.test'},body:JSON.stringify(payload)});return {env,state,req};}
 {
  const {env,req,state}=await create();const r=await worker.fetch(req(),env);const j=await r.json();assert.equal(r.status,201,JSON.stringify(j));assert.ok(r.headers.get('set-cookie')?.includes('HttpOnly'));assert.equal(state.batchCount,1);assert.equal(state.sessionCount,1);
  const r2=await worker.fetch(req(),env);assert.equal(r2.status,409);assert.match((await r2.json()).error,/sign in/i);
