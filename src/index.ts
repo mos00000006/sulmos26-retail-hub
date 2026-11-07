@@ -297,7 +297,11 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    so.reference sales_order_reference,so.status sales_order_status,so.fulfilment,so.delivery_address
    FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by
    LEFT JOIN users approver ON approver.id=q.discount_by LEFT JOIN sales_orders so ON so.quotation_id=q.id
-   WHERE UPPER(q.reference)=?`).bind(reference).first<{store_id:string;status:string}>();
+   WHERE UPPER(q.reference)=?`).bind(reference).first<{
+  store_id: string;
+  status: string;
+  sales_order_reference: string | null;
+}>();
   if(!q||!await scopedStore(db,u,q.store_id))return fail('Quotation not found at your assigned store',404);
   return json({quotation:q,payment_recorded:false,cash_office_status:q.status==='cancelled'?'cancelled':q.sales_order_reference?'awaiting_cashier':'awaiting_customer'});
  }
