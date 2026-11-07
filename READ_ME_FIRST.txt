@@ -1,28 +1,20 @@
-SULMOS26 V12 - INSTALL ICON PATCH (MANAGER HUB)
+SULMOS26 GREEN HUB RECOVERY V22 (ROLLBACK)
 
-This fixes the app metadata and adds proper Chrome/PWA install assets using the original SULMOS26 symbol, without text on the icon.
+This package restores an earlier known Green Hub frontend from before the V21 stock-sync modifications.
+It includes the safeItems() helper and retains basic Hub modules, quotations and owner discount interface.
+It does not delete or alter any D1 database information.
 
-IMPORTANT: This ZIP is a PATCH, not a replacement project. It must be extracted first, then the CONTENTS placed into the matching folders in your EXISTING GitHub repository. Never upload the ZIP alone as a repo file.
-
-Replace/add:
+REPLACE ONLY THESE TWO FILES IN GITHUB:
+public/app.js
 public/index.html
-public/manifest.webmanifest
-public/favicon.ico
-public/assets/icon-192.png
-public/assets/icon-512.png
-public/assets/icon-maskable-512.png
-public/assets/apple-touch-icon.png
-public/assets/favicon-48.png
-.github/scripts/check-pwa.mjs
-.github/workflows/deploy.yml
 
-If you already edited .github/workflows/deploy.yml since the original repo was uploaded, do NOT replace it blindly. Instead add the step: - name: Validate installed app icon and manifest / run: node .github/scripts/check-pwa.mjs immediately after npm run check.
+1. Keep a backup copy of your present files or GitHub commit hash.
+2. Replace files in the SAME paths in GitHub, not in a new directory.
+3. Commit to main.
+4. Run Deploy Sulmos26 to Cloudflare (GREEN HUB) workflow.
+5. After success open the green workers.dev URL in Chrome and press Ctrl+Shift+R.
+6. Do not change src/index.ts, migrations, database or red POS.
 
-DEPLOY
-1. Commit all new/updated files to the main branch of mos00000006/sulmos26-retail-hub.
-2. Run GitHub Actions -> Deploy Sulmos26 to Cloudflare -> Run workflow.
-3. Verify on your site: /manifest.webmanifest?v=12 shows name SULMOS26 HUB and /assets/icon-512.png?v=12 displays the SULMOS26 symbol. If those links show old content, the GitHub files are not yet deployed to the correct Worker.
-4. Remove the previous installed Chrome app. In Windows Chrome open chrome://apps and uninstall the old SULMOS26 entry.
-5. Hard refresh the website (Ctrl+Shift+R) and install again. The Chrome install dialog should use the logo icon, not the S.
+IMPORTANT: This deliberately rolls back the NEW Green Hub V21 stock quantity form. The backend stock records remain; the enhanced stock screen can be restored separately after the Hub loads.
 
-The patch does not touch backend logic, database, accounts or passwords.
+If the screen remains stuck, check browser DevTools (F12 > Console), and the Green Hub deployment's latest run. A browser error is necessary for further diagnosis.
