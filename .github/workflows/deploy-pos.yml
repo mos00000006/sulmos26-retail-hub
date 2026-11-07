@@ -1,0 +1,45 @@
+
+name: Deploy SULMOS26 POS (Separate Worker)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sulmos26-pos-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-pos:
+    name: Deploy red POS to its own workers.dev address
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check application code
+        run: npm run check
+      - name: Prepare separate POS Worker (same D1 database)
+        run: node .github/scripts/prepare-pos-deploy.mjs
+        env:
+          SULMOS26_D1_DATABASE_ID: $&#123;&#123; secrets.SULMOS26_D1_DATABASE_ID &#125;&#125;
+      - name: Deploy POS Worker (no database migrations, no owner setup secret)
+        run: npx wrangler deploy --config wrangler.pos.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: $&#123;&#123; secrets.CLOUDFLARE_ACCOUNT_ID &#125;&#125;
+          CLOUDFLARE_API_TOKEN: $&#123;&#123; secrets.CLOUDFLARE_API_TOKEN &#125;&#125;
+      - name: Show location
+        run: |
+          echo '### SULMOS26 POS deployed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Open Cloudflare > Workers & Pages > **sulmos26-pos** > Visit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is a separate POS address, but shares the Manager Hub D1 DB, accounts, and quotation records.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'For a branded domain add **pos.yourdomain.co.za** as a custom domain for this Worker in Cloudflare.' >> "$GITHUB_STEP_SUMMARY"
+  
