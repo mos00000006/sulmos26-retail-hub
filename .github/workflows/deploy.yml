@@ -26,6 +26,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Check project code
         run: npm run check
+      - name: Validate installed app icon and manifest
+        run: node .github/scripts/check-pwa.mjs
       - name: Validate isolated database and deployment configuration
         run: node .github/scripts/prepare-deploy.mjs
         env:

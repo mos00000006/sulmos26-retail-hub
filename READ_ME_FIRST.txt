@@ -1,22 +1,28 @@
-SULMOS26 Hub app icon fix (V11) — icon ONLY; no name in the graphic.
+SULMOS26 V12 - INSTALL ICON PATCH (MANAGER HUB)
 
-IMPORTANT: Do NOT upload this ZIP file into GitHub as-is; GitHub will not extract it.
-Extract this ZIP on your computer first.
+This fixes the app metadata and adds proper Chrome/PWA install assets using the original SULMOS26 symbol, without text on the icon.
 
-Upload the supplied public folder CONTENTS to the matching folder in your existing repository.
-This patch changes ONLY public/index.html, public/manifest.webmanifest and five public/assets icon PNG files. It does not alter staff, products, database, passwords or application scripts.
+IMPORTANT: This ZIP is a PATCH, not a replacement project. It must be extracted first, then the CONTENTS placed into the matching folders in your EXISTING GitHub repository. Never upload the ZIP alone as a repo file.
 
-Easiest method if using GitHub website:
-1. Extract the ZIP.
-2. In GitHub go to YOUR repository /public.
-3. Add file > Upload files, drag index.html and manifest.webmanifest from the extracted /public folder; commit to main.
-4. Open repository /public/assets.
-5. Add file > Upload files, drag the five new PNGs from extracted /public/assets; commit to main.
-6. Actions > Deploy Sulmos26 to Cloudflare > Run workflow on main.
-7. Verify these URLs load:
-   https://sulmos26-retail-hub.moyanamoses006.workers.dev/manifest.webmanifest?v=11
-   https://sulmos26-retail-hub.moyanamoses006.workers.dev/assets/icon-192.png?v=11
-8. Remove any previously installed SULMOS26 app in Chrome (chrome://apps), hard-refresh website (Ctrl+Shift+R), and install it again.
+Replace/add:
+public/index.html
+public/manifest.webmanifest
+public/favicon.ico
+public/assets/icon-192.png
+public/assets/icon-512.png
+public/assets/icon-maskable-512.png
+public/assets/apple-touch-icon.png
+public/assets/favicon-48.png
+.github/scripts/check-pwa.mjs
+.github/workflows/deploy.yml
 
-Expected manifest name: SULMOS26 HUB.
-If Chrome still shows old title, the new index.html was not deployed or a cached site is open.
+If you already edited .github/workflows/deploy.yml since the original repo was uploaded, do NOT replace it blindly. Instead add the step: - name: Validate installed app icon and manifest / run: node .github/scripts/check-pwa.mjs immediately after npm run check.
+
+DEPLOY
+1. Commit all new/updated files to the main branch of mos00000006/sulmos26-retail-hub.
+2. Run GitHub Actions -> Deploy Sulmos26 to Cloudflare -> Run workflow.
+3. Verify on your site: /manifest.webmanifest?v=12 shows name SULMOS26 HUB and /assets/icon-512.png?v=12 displays the SULMOS26 symbol. If those links show old content, the GitHub files are not yet deployed to the correct Worker.
+4. Remove the previous installed Chrome app. In Windows Chrome open chrome://apps and uninstall the old SULMOS26 entry.
+5. Hard refresh the website (Ctrl+Shift+R) and install again. The Chrome install dialog should use the logo icon, not the S.
+
+The patch does not touch backend logic, database, accounts or passwords.
