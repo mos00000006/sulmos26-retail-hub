@@ -135,3 +135,8 @@ header .btn-row { align-items: center; justify-content: flex-end; }
 .handoff-quote{margin-bottom:14px;padding:10px;border-radius:9px;background:#fff5f5;color:#303841}
 .mini-order{border-top:1px solid #e9ebef;padding:10px 0;display:grid;gap:3px;font-size:12px}.mini-order b{font-size:13px}.mini-order span{color:#495360}.mini-order small{color:#975c0e}
 .handoff-btn{background:#fff7f0;border-color:#e6c6a5;color:#855010}#handoffAddressWrap[hidden]{display:none}
+/* Phase 3 customer directory - consistent with red POS styling */
+.customer-toolbox{border:1px solid #eceff3;background:#fafbfc;border-radius:12px;padding:14px;margin-bottom:16px}
+.customer-toolbox .panel-head{margin-bottom:12px}
+.customer-save-box{background:white;border:1px solid #e2e6eb;border-radius:10px;padding:12px;margin-bottom:12px}
+.customer-history-row{display:flex;justify-content:flex-end;margin-top:8px}

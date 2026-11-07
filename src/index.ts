@@ -256,6 +256,62 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    return json({ok:true,id,reference:ref,status:'awaiting_cashier'},201);
   }
  }
+
+ // Phase 3: store-scoped customer directory; no payment or credit access.
+ if(path==='/api/customers'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Customer access required',403);
+  if(req.method==='GET'){
+   const store=clean(url.searchParams.get('store_id'),64),term=clean(url.searchParams.get('q'),80);
+   if(!store||!await scopedStore(db,u,store))return fail('Store access required',403);
+   const items=term
+    ?await rows(db,'SELECT id,store_id,name,phone,email,notes FROM customers WHERE store_id=? AND active=1 AND (name LIKE ? OR phone LIKE ?) ORDER BY name LIMIT 50',store,`%${term}%`,`%${term}%`)
+    :await rows(db,'SELECT id,store_id,name,phone,email,notes FROM customers WHERE store_id=? AND active=1 ORDER BY name LIMIT 100',store);
+   return json({items});
+  }
+  if(req.method==='POST'){
+   const b=await body(req),store=clean(b.store_id,64),name=clean(b.name,180),phone=clean(b.phone,50),email=clean(b.email,180),notes=clean(b.notes,300);
+   if(!name||!store||!await scopedStore(db,u,store))return fail('Customer name and assigned store are required',403);
+   if(email&&!/^\S+@\S+\.\S+$/.test(email))return fail('Invalid customer email');
+   const id=uid();
+   await db.prepare('INSERT INTO customers(id,store_id,name,phone,email,notes,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)').bind(id,store,name,phone,email,notes,u.id,now()).run();
+   await log(db,u.id,'create','customer',id);
+   return json({ok:true,id,name,phone},201);
+  }
+ }
+ const customerHistory=path.match(/^\/api\/customers\/([^/]+)\/quotations$/);
+ if(customerHistory&&req.method==='GET'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Customer access required',403);
+  const customer=await db.prepare('SELECT id,store_id,name FROM customers WHERE id=? AND active=1').bind(customerHistory[1]).first<{id:string;store_id:string;name:string}>();
+  if(!customer||!await scopedStore(db,u,customer.store_id))return fail('Customer not found',404);
+  const items=await rows(db,'SELECT q.id,q.reference,q.customer_name,q.total_cents,q.discount_cents,q.status,q.created_at FROM quotations q WHERE q.customer_id=? AND q.store_id=? ORDER BY q.created_at DESC LIMIT 50',customer.id,customer.store_id);
+  return json({customer,items});
+ }
+ // A cashier can retrieve ANY saved quote for their assigned store by the exact quotation number.
+ // No manual handoff is required for visibility. This endpoint is deliberately READ-ONLY.
+ if(path==='/api/cash-office/quotation'&&req.method==='GET'){
+  if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
+  const reference=clean(url.searchParams.get('reference'),100).toUpperCase();
+  if(!/^Q-[A-Z0-9-]{5,90}$/.test(reference))return fail('Enter a complete quotation number');
+  const q=await db.prepare(`SELECT q.id,q.reference,q.store_id,q.customer_name,q.customer_phone,q.lines_json,q.total_cents,q.original_total_cents,q.discount_cents,q.status,q.revision,q.created_at,
+   s.name store_name, creator.name created_by_name, approver.name discount_by_name,
+   so.reference sales_order_reference,so.status sales_order_status,so.fulfilment,so.delivery_address
+   FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by
+   LEFT JOIN users approver ON approver.id=q.discount_by LEFT JOIN sales_orders so ON so.quotation_id=q.id
+   WHERE UPPER(q.reference)=?`).bind(reference).first<{store_id:string;status:string}>();
+  if(!q||!await scopedStore(db,u,q.store_id))return fail('Quotation not found at your assigned store',404);
+  return json({quotation:q,payment_recorded:false,cash_office_status:q.status==='cancelled'?'cancelled':q.sales_order_reference?'awaiting_cashier':'awaiting_customer'});
+ }
+ // Searchable lookup list for cashier queue. Includes ALL quotes (even without a sales order).
+ if(path==='/api/cash-office/quotations'&&req.method==='GET'){
+  if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
+  const store=clean(url.searchParams.get('store_id'),64),query=clean(url.searchParams.get('q'),80);
+  if(!store||!await scopedStore(db,u,store))return fail('Store access required',403);
+  const pattern=`%${query}%`;
+  const items=await rows(db,`SELECT q.id,q.reference,q.customer_name,q.total_cents,q.discount_cents,q.status,q.created_at, creator.name created_by_name
+   FROM quotations q JOIN users creator ON creator.id=q.created_by
+   WHERE q.store_id=? AND (q.reference LIKE ? OR q.customer_name LIKE ?) ORDER BY q.created_at DESC LIMIT 100`,store,pattern,pattern);
+  return json({items});
+ }
  if(path==='/api/quotations'){
   if(req.method==='GET'){
    const columns='q.*,s.name store_name,creator.name created_by_name,approver.name discount_by_name';
@@ -265,7 +321,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
     :await rows(db,'SELECT '+columns+joins+' WHERE q.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=q.store_id) ORDER BY q.created_at DESC LIMIT 200',u.id,u.id);
    return json({items});
   }
-  if(req.method==='POST'&&permission(u.role,'quotations','write')){const b=await body(req),store=clean(b.store_id,60),name=clean(b.customer_name,180),lines=b.lines;if(!name||!await scopedStore(db,u,store)||!validLines(lines))return fail('Store, customer and at least one item required');const arr=lines as {sku:string;qty:number}[],snap=[] as {sku:string;name:string;qty:number;unit_price_cents:number;line_total_cents:number}[];let total=0;for(const l of arr){const p=await db.prepare('SELECT sku,name,price_cents FROM products WHERE sku=? AND active=1').bind(l.sku.trim()).first<{sku:string;name:string;price_cents:number}>();if(!p) return fail(`SKU not found: ${l.sku}`);const lineTotal=p.price_cents*l.qty;if(!Number.isSafeInteger(lineTotal))return fail('Amount too large');total+=lineTotal;snap.push({sku:p.sku,name:p.name,qty:l.qty,unit_price_cents:p.price_cents,line_total_cents:lineTotal})}if(!validMoney(total))return fail('Amount too large');const id=uid(),ref=`Q-${Date.now().toString(36).toUpperCase()}-${id.slice(0,5).toUpperCase()}`;await db.prepare('INSERT INTO quotations(id,reference,store_id,customer_name,customer_phone,lines_json,total_cents,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,ref,store,name,clean(b.customer_phone,50),JSON.stringify(snap),total,u.id,now()).run();await log(db,u.id,'create','quotation',id,ref);return json({ok:true,id,reference:ref,total_cents:total},201)}
+  if(req.method==='POST'&&permission(u.role,'quotations','write')){const b=await body(req),store=clean(b.store_id,60),name=clean(b.customer_name,180),customerId=clean(b.customer_id,64),lines=b.lines;if(!name||!await scopedStore(db,u,store)||!validLines(lines))return fail('Store, customer and at least one item required');if(customerId){const c=await db.prepare('SELECT id FROM customers WHERE id=? AND store_id=? AND active=1').bind(customerId,store).first();if(!c)return fail('Customer not found at assigned store',404)}const arr=lines as {sku:string;qty:number}[],snap=[] as {sku:string;name:string;qty:number;unit_price_cents:number;line_total_cents:number}[];let total=0;for(const l of arr){const p=await db.prepare('SELECT sku,name,price_cents FROM products WHERE sku=? AND active=1').bind(l.sku.trim()).first<{sku:string;name:string;price_cents:number}>();if(!p) return fail(`SKU not found: ${l.sku}`);const lineTotal=p.price_cents*l.qty;if(!Number.isSafeInteger(lineTotal))return fail('Amount too large');total+=lineTotal;snap.push({sku:p.sku,name:p.name,qty:l.qty,unit_price_cents:p.price_cents,line_total_cents:lineTotal})}if(!validMoney(total))return fail('Amount too large');const id=uid(),ref=`Q-${Date.now().toString(36).toUpperCase()}-${id.slice(0,5).toUpperCase()}`;await db.prepare('INSERT INTO quotations(id,reference,store_id,customer_name,customer_phone,lines_json,total_cents,created_by,created_at,customer_id) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,ref,store,name,clean(b.customer_phone,50),JSON.stringify(snap),total,u.id,now(),customerId||null).run();await log(db,u.id,'create','quotation',id,ref);return json({ok:true,id,reference:ref,total_cents:total},201)}
  }
  if(path==='/api/tasks'){
   if(req.method==='GET'){return json({items:['owner','manager'].includes(u.role)?await rows(db,'SELECT * FROM tasks ORDER BY created_at DESC LIMIT 200'):await rows(db,'SELECT t.* FROM tasks t WHERE t.store_id IS NULL OR EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=t.store_id) ORDER BY created_at DESC LIMIT 200',u.id)})}

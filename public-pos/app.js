@@ -5,7 +5,7 @@ const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
   user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:''
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -28,7 +28,7 @@ function quoteOriginal(q){
 function quoteStatus(q){
   if(state.orders.some(o=>o.quotation_id===q.id)) return 'Awaiting Cashier';
   if(Number(q.discount_cents||0)>0 || Number(q.discount_percent_basis_points||0)>0) return 'Discount approved';
-  return 'Quotation saved';
+  return 'Cash Office lookup ready';
 }
 function statusClass(q){
   if(state.orders.some(o=>o.quotation_id===q.id))return 'status-cashier';
@@ -82,9 +82,9 @@ function workspace(){
   <main>
     <div class="topline">
       <div>
-        <span class="tag">PHASE 1 · QUOTATIONS</span>
+        <span class="tag">SALES PHASE 3 · CUSTOMERS & CASH OFFICE LOOKUP</span>
         <h1>Sales desk</h1>
-        <p class="muted">Create customer quotations, track your recent work, and send discount requests to the owner through quotation numbers.</p>
+        <p class="muted">Every saved quotation is automatically available at Cash Office by its quotation number. Discounts remain owner-only.</p>
       </div>
       <div class="store-box">
         <label for="store">Assigned store</label>
@@ -135,9 +135,17 @@ function workspace(){
           <div class="pill">${state.basket.length} line${state.basket.length===1?'':'s'}</div>
         </div>
         <form id="quote">
+          <div class="customer-toolbox">
+            <div class="panel-head"><div><strong>Customer records</strong><p class="muted">Select a saved customer or use a walk-in name.</p></div><button id="toggleCustomerForm" class="btn mini" type="button">+ Save customer</button></div>
+            <div class="field"><label>Saved customer (optional)</label>
+              <select id="selectedCustomer"><option value="">Walk-in / enter manually</option>${state.customers.map(c=>`<option value="${esc(c.id)}" ${state.selectedCustomerId===c.id?'selected':''}>${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')}</select>
+            </div>
+            ${state.showCustomerForm?`<div class="customer-save-box"><div class="form-grid two"><div class="field"><label>Name</label><input id="newCustomerName" maxlength="180" placeholder="Customer name"></div><div class="field"><label>Cellphone</label><input id="newCustomerPhone" maxlength="50" placeholder="Cellphone (optional)"></div></div><div class="btn-row"><button class="btn mini primary" id="saveCustomer" type="button">Save customer</button><button class="btn mini" type="button" id="cancelCustomer">Cancel</button></div></div>`:''}
+            ${state.selectedCustomerId?`<div class="customer-history-row"><button class="btn mini" type="button" id="customerHistory">View customer quotation history</button></div><div class="customer-history-list">${state.customerHistory.length?state.customerHistory.map(q=>`<div class="mini-row"><span>${esc(q.reference)}</span><b>${money(q.total_cents)}</b></div>`).join(''):''}</div>`:''}
+          </div>
           <div class="form-grid two">
-            <div class="field"><label>Customer name</label><input name="customer_name" maxlength="180" required placeholder="Customer full name"></div>
-            <div class="field"><label>Customer cellphone (optional)</label><input name="customer_phone" maxlength="50" placeholder="Contact number"></div>
+            <div class="field"><label>Customer name</label><input name="customer_name" maxlength="180" required placeholder="Customer full name" value="${esc(state.customerName)}"></div>
+            <div class="field"><label>Customer cellphone (optional)</label><input name="customer_phone" maxlength="50" placeholder="Contact number" value="${esc(state.customerPhone)}"></div>
           </div>
           <table class="basket"><thead><tr><th>Item</th><th>Qty</th><th>Amount</th><th></th></tr></thead><tbody>${state.basket.length?state.basket.map((line,i)=>`<tr><td><b>${esc(line.name)}</b><div class="muted">${esc(line.sku)}</div></td><td><input type="number" min="1" max="1000000" step="1" data-qty="${i}" value="${line.qty}"></td><td>${money(line.qty*line.price_cents)}</td><td><button class="btn mini" type="button" data-remove="${i}" aria-label="Remove item">×</button></td></tr>`).join(''):'<tr><td colspan="4" class="empty">Add products to start</td></tr>'}</tbody></table>
           <div class="quote-summary">
@@ -172,8 +180,8 @@ function workspace(){
         </section>
 
         <section class="panel compact-panel cashier-panel">
-          <div class="panel-head"><div><h2>Cash Office handoff</h2><p class="muted">Sales do not receive or record payments.</p></div><span class="status status-cashier">Sales only</span></div>
-          ${handoffQuote?`<form id="handoffForm"><p class="handoff-quote"><strong>${esc(handoffQuote.reference)}</strong> · ${money(quoteTotal(handoffQuote))}</p><div class="field"><label>Order type</label><select id="handoffFulfilment" name="fulfilment"><option value="collection" ${state.handoffFulfilment==='collection'?'selected':''}>Customer collection</option><option value="delivery" ${state.handoffFulfilment==='delivery'?'selected':''}>Customer delivery</option></select></div><div class="field" id="handoffAddressWrap" ${state.handoffFulfilment==='delivery'?'':'hidden'}><label>Delivery address</label><input name="delivery_address" maxlength="300" placeholder="Full delivery address" value="${esc(state.handoffAddress)}"></div><div class="field"><label>Instructions (optional)</label><input name="sales_note" maxlength="500" placeholder="Collection or delivery instructions" value="${esc(state.handoffNote)}"></div><div class="btn-row"><button type="submit" class="btn primary" ${state.busy?'disabled':''}>Send to Cash Office</button><button type="button" class="btn mini" id="cancelHandoff">Cancel</button></div></form>`:'<p class="muted">Choose a saved quotation below, then click <b>Send to Cash Office</b>. Cash Office will handle all payments later.</p>'}
+          <div class="panel-head"><div><h2>Cash Office handoff</h2><p class="muted">All quotations are already searchable at Cash Office. Use this section only to confirm collection or delivery details.</p><p class="muted">Sales do not receive or record payments.</p></div><span class="status status-cashier">Sales only</span></div>
+          ${handoffQuote?`<form id="handoffForm"><p class="handoff-quote"><strong>${esc(handoffQuote.reference)}</strong> · ${money(quoteTotal(handoffQuote))}</p><div class="field"><label>Order type</label><select id="handoffFulfilment" name="fulfilment"><option value="collection" ${state.handoffFulfilment==='collection'?'selected':''}>Customer collection</option><option value="delivery" ${state.handoffFulfilment==='delivery'?'selected':''}>Customer delivery</option></select></div><div class="field" id="handoffAddressWrap" ${state.handoffFulfilment==='delivery'?'':'hidden'}><label>Delivery address</label><input name="delivery_address" maxlength="300" placeholder="Full delivery address" value="${esc(state.handoffAddress)}"></div><div class="field"><label>Instructions (optional)</label><input name="sales_note" maxlength="500" placeholder="Collection or delivery instructions" value="${esc(state.handoffNote)}"></div><div class="btn-row"><button type="submit" class="btn primary" ${state.busy?'disabled':''}>Confirm order details</button><button type="button" class="btn mini" id="cancelHandoff">Cancel</button></div></form>`:'<p class="muted">Choose a saved quotation below, then click <b>Confirm order details</b>. Cash Office will handle all payments later.</p>'}
           <h3 class="section-mini">Recently sent orders</h3>
           ${sentOrders.length?sentOrders.map(o=>`<div class="mini-order"><b>${esc(o.reference)}</b><span>${esc(o.customer_name)} · ${money(o.total_cents)}</span><small>Awaiting Cashier · ${esc(o.fulfilment)}</small></div>`).join(''):'<div class="muted">No orders sent yet.</div>'}
         </section>
@@ -182,7 +190,7 @@ function workspace(){
           <div class="panel-head"><div><h2>My quotations</h2><p class="muted">Search, reprint, and send orders to Cash Office.</p></div></div>
           <div class="search-row slim"><input id="quoteSearch" placeholder="Search quote number or customer" value="${esc(state.quoteSearch)}"></div>
           <div class="quotes-list">
-            ${qrows.length?qrows.map(q=>`<div class="quote-card"><div class="quote-top"><strong>${esc(q.reference)}</strong><span class="status ${statusClass(q)}">${esc(quoteStatus(q))}</span></div><div class="muted quote-meta">${esc(q.customer_name||'Walk-in customer')} · ${esc(q.store_name||'')} · ${esc(new Date(q.created_at).toLocaleDateString('en-ZA'))}</div><div class="quote-money"><span>${money(quoteTotal(q))}</span>${quoteOriginal(q)!==quoteTotal(q)?`<small>Orig ${money(quoteOriginal(q))}</small>`:''}</div><div class="btn-row mt10"><button class="btn mini" data-print="${esc(q.id)}">Print</button><button class="btn mini" data-reloadquote="${esc(q.id)}">Refresh & Print</button>${state.orders.some(o=>o.quotation_id===q.id)?'<span class="status status-cashier">Sent to Cash Office</span>':`<button class="btn mini handoff-btn" data-handoff="${esc(q.id)}">Send to Cash Office</button>`}</div></div>`).join(''):'<div class="empty">No quotations found.</div>'}
+            ${qrows.length?qrows.map(q=>`<div class="quote-card"><div class="quote-top"><strong>${esc(q.reference)}</strong><span class="status ${statusClass(q)}">${esc(quoteStatus(q))}</span></div><div class="muted quote-meta">${esc(q.customer_name||'Walk-in customer')} · ${esc(q.store_name||'')} · ${esc(new Date(q.created_at).toLocaleDateString('en-ZA'))}</div><div class="quote-money"><span>${money(quoteTotal(q))}</span>${quoteOriginal(q)!==quoteTotal(q)?`<small>Orig ${money(quoteOriginal(q))}</small>`:''}</div><div class="btn-row mt10"><button class="btn mini" data-print="${esc(q.id)}">Print</button><button class="btn mini" data-reloadquote="${esc(q.id)}">Refresh & Print</button>${state.orders.some(o=>o.quotation_id===q.id)?'<span class="status status-cashier">Collection/delivery confirmed</span>':`<button class="btn mini handoff-btn" data-handoff="${esc(q.id)}">Confirm order details</button>`}</div></div>`).join(''):'<div class="empty">No quotations found.</div>'}
           </div>
         </section>
       </aside>
@@ -197,6 +205,13 @@ async function refresh(){
   state.quotes=quotes.items||[];
   state.orders=orders.items||[];
   if(!state.stores.some(s=>s.id===state.currentStore)) state.currentStore=state.stores[0]?.id||'';
+  await loadCustomers();
+}
+async function loadCustomers(){
+  if(!state.currentStore){state.customers=[];return}
+  const result=await api('customers?store_id='+encodeURIComponent(state.currentStore));
+  state.customers=result.items||[];
+  if(!state.customers.some(c=>c.id===state.selectedCustomerId))state.selectedCustomerId='';
 }
 function printQuote(q){
   let lines=[];
@@ -227,7 +242,7 @@ function wire(){
       const b=Object.fromEntries(new FormData(f));
       try{
         const data=await post('login',b);
-        if(!['owner','manager','sales','cashier'].includes(data.user.role)) throw Error('Your role does not include POS access');
+        if(!['owner','manager','sales'].includes(data.user.role)) throw Error('Your role does not include POS access');
         state.user=data.user; state.notice='';
         await refresh();
         render();
@@ -236,8 +251,37 @@ function wire(){
     return;
   }
   $('#signout').onclick=async()=>{await post('logout',{}).catch(()=>{}); state.user=null; state.basket=[]; state.notice=''; render()};
-  $('#store').onchange=e=>{state.currentStore=e.target.value; render()};
+  $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();render()}catch(err){message(err)}};
   $('#search').oninput=e=>{state.search=e.target.value; render(); $('#search').focus(); $('#search').setSelectionRange(state.search.length,state.search.length)};
+  $('#selectedCustomer').onchange=e=>{
+    state.selectedCustomerId=e.target.value;state.customerHistory=[];
+    const customer=state.customers.find(c=>c.id===state.selectedCustomerId);
+    if(customer){state.customerName=customer.name;state.customerPhone=customer.phone||''}
+    render();
+  };
+  const customerNameInput=$('#quote input[name="customer_name"]');
+  const customerPhoneInput=$('#quote input[name="customer_phone"]');
+  customerNameInput.oninput=e=>{state.customerName=e.target.value; if(state.selectedCustomerId && state.customers.find(c=>c.id===state.selectedCustomerId)?.name!==state.customerName)state.selectedCustomerId=''};
+  customerPhoneInput.oninput=e=>{state.customerPhone=e.target.value};
+  $('#toggleCustomerForm').onclick=()=>{state.showCustomerForm=!state.showCustomerForm;render()};
+  if($('#cancelCustomer'))$('#cancelCustomer').onclick=()=>{state.showCustomerForm=false;render()};
+  if($('#saveCustomer'))$('#saveCustomer').onclick=async()=>{
+    const name=$('#newCustomerName').value.trim(),phone=$('#newCustomerPhone').value.trim();
+    if(!name)return message('Enter the customer name');
+    try{
+      const created=await post('customers',{store_id:state.currentStore,name,phone});
+      await loadCustomers();state.selectedCustomerId=created.id;state.customerName=name;state.customerPhone=phone;state.showCustomerForm=false;
+      message('Customer saved and selected',true);
+    }catch(err){message(err)}
+  };
+  if($('#customerHistory'))$('#customerHistory').onclick=async()=>{
+    try{
+      const result=await api('customers/'+encodeURIComponent(state.selectedCustomerId)+'/quotations');
+      state.customerHistory=(result.items||[]).slice(0,10);render();
+      if(!state.customerHistory.length)message('No saved quotations for this customer yet.');
+    }catch(err){message(err)}
+  };
+
   $$('.chip[data-cat]').forEach(b=>b.onclick=()=>{state.categoryFilter=b.dataset.cat||''; render()});
   $$('.quote-card [data-print], [data-print]').forEach(b=>b.onclick=()=>{const q=state.quotes.find(x=>x.id===b.dataset.print); if(q) printQuote(q)});
   $$('[data-reloadquote]').forEach(b=>b.onclick=()=>reloadQuoteAndPrint(b.dataset.reloadquote));
@@ -254,7 +298,7 @@ function wire(){
         const latest=await api('quotations/'+encodeURIComponent(state.handoffId));
         if(!latest.quotation)throw Error('Quotation not found');
         const result=await post('sales-orders',{quotation_id:state.handoffId,fulfilment:data.fulfilment,delivery_address:data.delivery_address||'',sales_note:data.sales_note||''});
-        state.handoffId='';await refresh();message(`Sales order ${result.reference} sent to Cash Office. No payment recorded.`,true);
+        state.handoffId='';await refresh();message(`Order details confirmed (${result.reference}). Cash Office can also find the original quotation number. No payment recorded.`,true);
       }catch(err){message(err)}finally{state.busy=false}
     };
   }
@@ -273,13 +317,13 @@ function wire(){
     state.busy=true;
     const values=Object.fromEntries(new FormData(e.target));
     try{
-      const payload={store_id:state.currentStore,customer_name:values.customer_name,customer_phone:values.customer_phone,lines:state.basket.map(({sku,qty})=>({sku,qty}))};
+      const payload={store_id:state.currentStore,customer_id:state.selectedCustomerId||undefined,customer_name:values.customer_name,customer_phone:values.customer_phone,lines:state.basket.map(({sku,qty})=>({sku,qty}))};
       const result=await post('quotations',payload);
-      state.basket=[];
+      state.basket=[];state.selectedCustomerId='';state.customerName='';state.customerPhone='';state.customerHistory=[];
       state.lastSavedQuoteId=result.id||'';
       state.lastSavedReference=result.reference||'';
       await refresh();
-      message(`Quotation ${result.reference} saved successfully`,true);
+      message(`Quotation ${result.reference} saved. Cash Office can retrieve it immediately by this number. No payment recorded.`,true);
     }catch(err){message(err)}finally{state.busy=false}
   };
 }
@@ -287,7 +331,7 @@ async function start(){
   try{
     const session=await api('session');
     if(session.user){
-      if(!['owner','manager','sales','cashier'].includes(session.user.role)) throw Error('This account is not permitted to use POS');
+      if(!['owner','manager','sales'].includes(session.user.role)) throw Error('This account is not permitted to use POS');
       state.user=session.user;
       await refresh();
     }else if(session.setup){
