@@ -55,7 +55,9 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  const u=await auth(req,db);if(!u)return fail('Sign in required',401);
  if(path==='/api/overview'&&req.method==='GET'){
   const data=await db.batch([db.prepare('SELECT COUNT(*) n FROM stores WHERE active=1'),db.prepare('SELECT COUNT(*) n FROM products WHERE active=1'),db.prepare('SELECT COUNT(*) n FROM quotations'),db.prepare('SELECT COUNT(*) n FROM stock_documents'),db.prepare('SELECT COUNT(*) n FROM tasks WHERE status != ?').bind('done')]);
-  return json({stores:data[0].results[0]?.n||0,products:data[1].results[0]?.n||0,quotes:data[2].results[0]?.n||0,documents:data[3].results[0]?.n||0,tasks:data[4].results[0]?.n||0});
+  // D1 batch results are typed as generic rows. This query always returns COUNT(*) AS n.
+  const count=(index:number)=>Number((data[index]?.results?.[0] as {n?:number}|undefined)?.n ?? 0);
+  return json({stores:count(0),products:count(1),quotes:count(2),documents:count(3),tasks:count(4)});
  }
  if(path==='/api/business'){
   if(req.method==='GET')return json({business:await db.prepare('SELECT * FROM business WHERE id=?').bind('primary').first()});

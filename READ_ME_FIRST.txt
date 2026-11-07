@@ -1,12 +1,18 @@
-SULMOS26 — GITHUB NPM INSTALL DEPENDENCY FIX V2
+SULMOS26 V3 — GITHUB TYPESCRIPT BUILD FIX
 
-1. Unzip this patch.
-2. Copy package.json into the ROOT of your sulmos26-retail-hub GitHub repository (replace existing).
-3. Commit and push. GitHub will rerun npm install.
-4. Do NOT copy this into maliksgroupza (PowerBuild Hub).
+Error addressed:
+src/index.ts(58): Property 'n' does not exist on type '{}'. (5 occurrences)
 
-This pins wrangler@4.158.0 and @cloudflare/workers-types@5.20261107.1, the versions identified in your GitHub npm ERESOLVE log. This resolves the stated peer dependency mismatch.
+The overview endpoint uses a D1 database batch containing five COUNT(*) AS n queries. Cloudflare's D1 TypeScript result rows are generic, so directly accessing row.n causes TS2339. The fix introduces one typed count helper and uses it for stores, products, quotations, documents and tasks.
 
-If you already committed a package-lock.json with the old versions, update it by running `npm install --package-lock-only --no-audit --no-fund` on a machine with npm registry access and commit the new lockfile. There is no lockfile in the original Sulmos26 V1 ZIP.
+INSTALL THE SMALL PATCH (recommended if V2 is already in GitHub):
+1. Extract Sulmos26_GitHub_TS2339_Overview_Counts_V3_PATCH.zip.
+2. Copy its src/index.ts into your sulmos26-retail-hub repository, replacing the original file.
+3. Copy tests/overview-counts.test.mjs to the existing tests folder.
+4. Commit and push. GitHub Actions will rerun npm run check.
 
-Validation: package.json parsed correctly and existing Node tests passed locally. The npm registry is not reachable from this environment, so the complete npm install and GitHub check still need to be verified on GitHub.
+ALTERNATIVE: If starting from scratch, use the full V3 GitHub ZIP in a NEW repository.
+
+This change does not touch your logo, customer data, prices, permissions, database, PowerBuild Hub or any migrations.
+
+Validation: node --test tests/*.test.mjs passed in the working container. The complete npm run build cannot be performed in this environment because the project's Cloudflare/TypeScript node_modules are not installed. GitHub CI must confirm that final typecheck and deployment pass.
