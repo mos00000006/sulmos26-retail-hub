@@ -39,16 +39,36 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  if(path==='/api/session' && req.method==='GET'){const owner=await db.prepare('SELECT id FROM users LIMIT 1').first();if(!owner)return json({setup:true,user:null});const u=await auth(req,db);return json({setup:false,user:u||null});}
  if(path==='/api/setup' && req.method==='POST'){
   if(!validSetupToken(req.headers.get('x-sulmos26-setup-token'),env.SULMOS26_SETUP_TOKEN))
-   return fail('Owner setup is locked. Enter the private installation key supplied by your Sulmos26 administrator.',403);
+   return fail('Owner setup is locked. Check the private installation key supplied by your Sulmos26 administrator.',403);
   const b=await body(req);const business=clean(b.business,120),name=clean(b.name,100),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200);
   if(!business||!name||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12)return fail('Business name, owner name, valid email, and password of at least 12 characters are required');
-  const salt=rand(16),hashPass=await passwordHash(pass,salt),timestamp=now();
+  // A previous setup may have committed the owner before the session cookie failed.
+  // Never overwrite an existing owner or repeat initialisation on this endpoint.
+  const existingOwner=await db.prepare('SELECT id FROM users LIMIT 1').first<{id:string}>();
+  if(existingOwner)return fail('The first owner already exists. Refresh the page and sign in instead.',409);
+  const salt=rand(16),timestamp=now();let hashPass:string;
+  try{hashPass=await passwordHash(pass,salt)}catch(e){
+   console.error('SULMOS26_SETUP_HASH',e instanceof Error?e.name:'unknown');
+   return fail('Secure password setup failed (SETUP_HASH). Ask the administrator to check Cloudflare Worker logs.',503);
+  }
   try{await db.batch([
    db.prepare('INSERT INTO users(id,name,email,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?)').bind('owner',name,email,salt,hashPass,'owner',timestamp),
    db.prepare('INSERT INTO business(id,name,trading_name,created_at) VALUES(?,?,?,?)').bind('primary',business,business,timestamp),
    db.prepare('INSERT INTO audit_log(id,actor_id,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)').bind(uid(),'owner','setup','business','primary','Fresh customer installation',timestamp)
-  ]);}catch{return fail('Initial setup has already been completed. Sign in instead.',409)}
-  return json({ok:true,user:{id:'owner',name,email,role:'owner'}},201,await createSession(db,'owner',req));
+  ]);}catch(e){
+   console.error('SULMOS26_SETUP_WRITE',e instanceof Error?e.name:'unknown');
+   // A simultaneous setup may have won the owner race. Do not leak DB internals.
+   const owner=await db.prepare('SELECT id FROM users LIMIT 1').first<{id:string}>().catch(()=>null);
+   if(owner)return fail('An owner account already exists. Refresh the page and sign in.',409);
+   return fail('Could not save the first owner (SETUP_WRITE). Check the D1 migration and Cloudflare Worker logs.',503);
+  }
+  try{
+   const headers=await createSession(db,'owner',req);
+   return json({ok:true,user:{id:'owner',name,email,role:'owner'}},201,headers);
+  }catch(e){
+   console.error('SULMOS26_SETUP_SESSION',e instanceof Error?e.name:'unknown');
+   return fail('The owner was saved, but automatic sign-in failed (SETUP_SESSION). Refresh the page and try signing in.',503);
+  }
  }
  if(path==='/api/login' && req.method==='POST'){
   const b=await body(req),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200);
