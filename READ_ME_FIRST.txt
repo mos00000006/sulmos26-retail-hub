@@ -1,43 +1,41 @@
-SULMOS26 — CLOUDFLARE FIRST-OWNER SETUP FIX V6
-================================================
+SULMOS26 V7 — DIAGNOSE FIRST-OWNER SETUP (SAFE, NO RESET)
+=========================================================
+PURPOSE
+Your browser is still showing the old generic "Request could not be completed"
+message after attempts at the V5 and V6 recovery patches. V7 establishes
+whether the live Worker really has the updated backend and returns stage-
+specific errors rather than requiring further guesses.
 
-ROOT CAUSE
-The original password derivation used 210,000 PBKDF2 iterations in ONE
-WebCrypto deriveBits call. Cloudflare workerd rejects more than 100,000
-iterations per call (Cloudflare/workerd issue #1346). Therefore the setup
-can fail before an owner is saved, despite a green GitHub deployment.
+INSTALL (existing repo: sulmos26-retail-hub)
+1. Extract ZIP and copy the src and tests folders into your repo, merging files.
+2. Replace src/index.ts and add tests/setup-diagnostics-v7.test.mjs.
+   The included logic.mjs and logic.d.mts are unchanged dependencies of index.ts.
+3. Commit to GitHub. Check Actions > Sulmos26 Check.
+4. IMPORTANT: A green "Sulmos26 Check" does not publish the Worker.
+   Go to Actions > Deploy Sulmos26 to Cloudflare > Run workflow > main.
+   Wait for this NEW deploy run to finish successfully.
 
-PATCH INSTALLATION
-1. Extract this ZIP. In GitHub repo sulmos26-retail-hub, replace exactly:
-     src/index.ts
-   and add/update:
-     tests/setup-recovery.test.mjs
-     tests/cloudflare-password-runtime.test.mjs
-2. Commit, run 'Sulmos26 Check', then manually run:
-     Actions > Deploy Sulmos26 to Cloudflare > Run workflow > main
-3. After the green deployment, reload the WORKERS.DEV URL (Ctrl+F5).
-4. If you see Sign in, the owner already exists: sign in, do not re-register.
-5. If you see Create your business workspace, retry the same setup key
-   and owner email/password. Never paste secrets into screenshots or chat.
+VERIFY THE LIVE DEPLOYMENT WITHOUT SHARING CREDENTIALS
+Open this URL (normal browser tab):
+https://sulmos26-retail-hub.moyanamoses006.workers.dev/api/version
+Expected response:
+{"application":"Sulmos26 Retail Hub","version":"V7-SETUP-DIAGNOSTICS"}
+If you see 404, another version, or an HTML page, GitHub code is not yet
+published to this Worker. Check the deploy log and exact Worker account.
+
+CHECK EXISTING OWNER BEFORE RETRYING
+Refresh main app. If "Sign in" appears, use previous owner email/password.
+If "Create your business workspace" remains, try setup only once.
+- SETUP_DB_READ: D1 query failed (check DB binding and migrations)
+- SETUP_HASH: runtime password hashing problem
+- SETUP_WRITE: D1 transaction failed (check schema, logs)
+- SETUP_SESSION: owner saved, but session creation failed (refresh/sign in)
+- SETUP_UNHANDLED: unexpected failure early in request; check Worker logs
+- "Owner setup locked": private key/binding mismatch
+NEVER delete/recreate D1, publish setup key, or paste password in chat.
 
 WHAT CHANGED
-- Replaces unsupported single 210k PBKDF2 call with six chained
-  100k PBKDF2-SHA-256 calls using domain-separated salts. The new
-  hashes have the v2$ prefix. This keeps each invocation below the
-  Cloudflare runtime limit while maintaining an expensive derivation.
-- Keeps the V5 specific failure codes SETUP_HASH, SETUP_WRITE, SETUP_SESSION.
-- No schema changes, database reset, GitHub secrets changes or UI changes.
-
-SECURITY / OPERATIONS
-- For customer-commercial deployment, replace the interim chained PBKDF2
-  construction with a reviewed Argon2id password-hashing integration and
-  a versioned migration strategy, after testing it in Cloudflare.
-- Previously-created accounts using the old unversioned hash cannot be
-  authenticated by this V6 interim patch. If the setup screen is still
-  visible, there should be no such owner. Never delete customer data or
-  reset the DB without a separate recovery plan.
-- If setup still fails, open Cloudflare > Workers & Pages >
-  sulmos26-retail-hub > Logs > Live, attempt setup ONCE and send only
-  the error code or a screenshot with all credentials and headers redacted.
-
-Source: https://github.com/cloudflare/workerd/issues/1346
+This V7 patch changes only the Worker setup error classification and adds
+read-only GET /api/version. No schema, data, UI, marketing, or employee changes.
+It does NOT claim to solve an unknown production DB/configuration error;
+it makes its cause observable and confirms if the patched code was deployed.

@@ -45,6 +45,9 @@ async function createSession(db:D1Database,userId:string,req:Request){const toke
 const summary=(r:Record<string,unknown>)=>r;
 export default {async fetch(req:Request,env:Env):Promise<Response>{
  const url=new URL(req.url);const path=url.pathname;
+ // Read-only version marker, independent of D1 and any owner credentials.
+ // If this URL returns 404, the diagnostic build was not deployed to this Worker.
+ if(path==='/api/version' && req.method==='GET')return json({application:'Sulmos26 Retail Hub',version:'V7-SETUP-DIAGNOSTICS'});
  if(!path.startsWith('/api/'))return env.ASSETS.fetch(req);
  if(req.method!=='GET' && (!guardOrigin(req)||req.headers.get('content-type')?.split(';')[0]!=='application/json'))return fail('Request blocked: invalid origin or content type',403);
  try{
@@ -57,7 +60,13 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!business||!name||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12)return fail('Business name, owner name, valid email, and password of at least 12 characters are required');
   // A previous setup may have committed the owner before the session cookie failed.
   // Never overwrite an existing owner or repeat initialisation on this endpoint.
-  const existingOwner=await db.prepare('SELECT id FROM users LIMIT 1').first<{id:string}>();
+  // The session endpoint uses this table too, but classify a bootstrap read failure.
+  let existingOwner: {id:string}|null;
+  try{existingOwner=await db.prepare('SELECT id FROM users LIMIT 1').first<{id:string}>();}
+  catch(e){
+   console.error('SULMOS26_SETUP_DB_READ',e instanceof Error?e.name:'unknown');
+   return fail('Owner setup cannot read the database (SETUP_DB_READ). Check the D1 binding and migration.',503);
+  }
   if(existingOwner)return fail('The first owner already exists. Refresh the page and sign in instead.',409);
   const salt=rand(16),timestamp=now();let hashPass:string;
   try{hashPass=await passwordHash(pass,salt)}catch(e){
@@ -141,5 +150,16 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  const taskUpdate=path.match(/^\/api\/tasks\/([^/]+)\/status$/);if(taskUpdate&&req.method==='POST'&&permission(u.role,'tasks','write')){const b=await body(req),status=clean(b.status,20);if(!['open','in_progress','done'].includes(status))return fail('Invalid status');const t=await db.prepare('SELECT store_id FROM tasks WHERE id=?').bind(taskUpdate[1]).first<{store_id:string|null}>();if(!t||(t.store_id&&!await scopedStore(db,u,t.store_id)))return fail('Task not found',404);await db.prepare('UPDATE tasks SET status=? WHERE id=?').bind(status,taskUpdate[1]).run();await log(db,u.id,'update','task',taskUpdate[1],status);return json({ok:true})}
  if(path==='/api/audit'&&req.method==='GET'&&['owner','manager'].includes(u.role))return json({items:await rows(db,'SELECT a.*,u.name actor_name FROM audit_log a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.created_at DESC LIMIT 150')});
  return fail('Not found or not permitted',404);
- }catch(e){const m=e instanceof Error?e.message:String(e);if(/UNIQUE constraint failed/i.test(m))return fail('That code or email already exists',409);if(m.includes('JSON'))return fail('Invalid request format');return fail('Request could not be completed',500)}
+ }catch(e){
+  const m=e instanceof Error?e.message:String(e);
+  const type=e instanceof Error?e.name:'UnknownError';
+  if(path==='/api/setup'){
+   // Do not log submitted fields, credentials, raw SQL or setup tokens.
+   console.error('SULMOS26_SETUP_UNHANDLED',type);
+   return fail('Owner setup failed unexpectedly (SETUP_UNHANDLED). Check Cloudflare Worker live logs.',503);
+  }
+  if(/UNIQUE constraint failed/i.test(m))return fail('That code or email already exists',409);
+  if(m.includes('JSON'))return fail('Invalid request format');
+  return fail('Request could not be completed',500);
+ }
 }} satisfies ExportedHandler<Env>;
