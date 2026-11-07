@@ -1,0 +1,56 @@
+name: Deploy Sulmos26 to Cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sulmos26-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the REAL Sulmos26 application
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check project code
+        run: npm run check
+      - name: Validate isolated database and deployment configuration
+        run: node .github/scripts/prepare-deploy.mjs
+        env:
+          SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+          SULMOS26_SETUP_TOKEN: ${{ secrets.SULMOS26_SETUP_TOKEN }}
+      - name: Install database schema into the NEW Sulmos26 database
+        run: npx wrangler d1 migrations apply sulmos26-db --remote --config wrangler.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy Cloudflare Worker and private owner setup secret
+        id: publish
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.158.0'
+          command: deploy --config wrangler.deploy.jsonc
+          secrets: |
+            SULMOS26_SETUP_TOKEN
+        env:
+          SULMOS26_SETUP_TOKEN: ${{ secrets.SULMOS26_SETUP_TOKEN }}
+      - name: Explain where to open the real app
+        run: |
+          echo '### Sulmos26 application deployed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Open **Cloudflare > Workers & Pages > sulmos26-retail-hub > Visit** to launch the actual application.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The github.io Pages link is documentation, not the app.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'On first launch, enter the installation key saved as SULMOS26_SETUP_TOKEN in GitHub Secrets.' >> "$GITHUB_STEP_SUMMARY"

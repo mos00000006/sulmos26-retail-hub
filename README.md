@@ -2,6 +2,10 @@
 
 **Standalone GitHub-ready retail hub starter.** This is an **independent project**. Do **not** merge it into your PowerBuild / Maliks Group Hub repository. The fresh D1 database contains **no demo stores, branches, customers, products, photos, users, prices or transactions**.
 
+## Open Sulmos26 (the actual app)
+
+**The GitHub Pages link is documentation, not the running Hub.** The Worker + D1 app must be deployed to Cloudflare. Follow [OPEN_SULMOS26_AFTER_GITHUB.txt](OPEN_SULMOS26_AFTER_GITHUB.txt). GitHub Actions has a manual **Deploy Sulmos26 to Cloudflare** workflow. A private 32+ character installation key is required before the first owner can register. The separate `sulmos26-retail-hub` Worker and D1 database are used; never reuse PowerBuild credentials or bindings.
+
 ## What works in V1
 
 - Company onboarding: the first owner creates the business and secure owner login.

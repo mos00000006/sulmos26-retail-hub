@@ -5,3 +5,6 @@ dist/
 .dev.vars
 .DS_Store
 *.log
+
+# Generated only on the GitHub Actions runner; never commit live bindings
+wrangler.deploy.jsonc

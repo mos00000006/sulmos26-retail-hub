@@ -1,0 +1,49 @@
+SULMOS26 — OPEN THE REAL APP (GITHUB -> CLOUDFLARE)
+===================================================
+
+WHY YOUR CURRENT LINK SHOWS THE README
+The https://mos00000006.github.io/sulmos26-retail-hub/ link is GitHub Pages.
+GitHub Pages published the repository README. Sulmos26 is NOT a static-only app:
+its /api routes and D1 database must run on a Cloudflare Worker.
+
+1. In Cloudflare (the correct account, separate from PowerBuild/Maliks),
+   open Storage & databases > D1 SQL database > Create database.
+   Name it: sulmos26-db
+   Copy its UUID. Do NOT use the Maliks/PowerBuild database.
+2. Create a scoped Cloudflare API token with permission to deploy Workers
+   AND manage the Sulmos26 D1 database/migrations.
+3. In GitHub > your sulmos26-retail-hub repository > Settings >
+   Secrets and variables > Actions > New repository secret, add:
+      CLOUDFLARE_ACCOUNT_ID    = Cloudflare account ID
+      CLOUDFLARE_API_TOKEN     = Cloudflare API token (do NOT share)
+      SULMOS26_D1_DATABASE_ID  = new Sulmos26 D1 database UUID
+      SULMOS26_SETUP_TOKEN     = private random key of AT LEAST 32 characters
+   Generate a strong independent setup key, store it privately and do not put it in source.
+4. Upload the contents of this patch to the ROOT of the GitHub repository.
+   Confirm .github/workflows/deploy.yml and .github/scripts/prepare-deploy.mjs exist.
+5. In GitHub choose Actions > Deploy Sulmos26 to Cloudflare > Run workflow.
+   The workflow installs dependencies, runs checks, applies D1 migration to the
+   NEW database, deploys the Worker with its static assets and configures the setup key.
+6. Once GitHub Actions is GREEN, open Cloudflare > Workers & Pages >
+   sulmos26-retail-hub > Visit. It will show an address ending in workers.dev
+   (or your own custom domain after you configure one).
+7. On the first screen enter the private setup key (same one from step 3),
+   your new business name, owner name/email and a strong password.
+   Future access uses email/password as normal. Never give the setup key to customers
+   except the person authorised to become owner of this new installation.
+
+SECURITY
+- Owner setup is CLOSED unless the Worker has SULMOS26_SETUP_TOKEN configured.
+- Owner setup requires that private token, and fails after the first owner is created.
+- Do not publish production credentials or a complete Cloudflare config in GitHub.
+- Restrict access before first setup, use Cloudflare Access if necessary, and get
+  a security assessment before selling this starter as a production business system.
+- A separate D1 database and Worker are required for every customer.
+
+GITHUB PAGES
+GitHub Pages is not the live Sulmos26 site. You can disable it at GitHub >
+Settings > Pages (if you do not want the README site). Do not upload your
+Worker API/database secrets or try to run them in GitHub Pages.
+
+NO CHANGES TO
+PowerBuild Hub, Maliks Group Hub, paid invoices, stock balances or customer records.

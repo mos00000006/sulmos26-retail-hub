@@ -1,0 +1,9 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {spawnSync} from 'node:child_process';
+const root=new URL('../',import.meta.url);
+const worker=readFileSync(new URL('src/index.ts',root),'utf8');
+const ui=readFileSync(new URL('public/app.js',root),'utf8');
+const workflow=readFileSync(new URL('.github/workflows/deploy.yml',root),'utf8');
+test('owner setup fails closed unless private server-side key is configured and presented',()=>{assert.match(worker,/SULMOS26_SETUP_TOKEN\?: string/);assert.match(worker,/if\(!validSetupToken\(req.headers.get\('x-sulmos26-setup-token'\),env.SULMOS26_SETUP_TOKEN\)\)/);assert.match(worker,/secret.length<32/)});
+test('setup key entered in a password control and sent in header, not in storage or URL',()=>{assert.match(ui,/field\('setup_key','Private installation key','password'/);assert.match(ui,/x-sulmos26-setup-token/);assert.match(ui,/delete values.setup_key/);assert.doesNotMatch(ui,/localStorage\.(setItem|getItem)\([^)]*setup_key/)});
+test('deployment runs migrations, tests and worker deploy only from an explicit GitHub action',()=>{assert.match(workflow,/workflow_dispatch:/);assert.match(workflow,/npm run check/);assert.match(workflow,/d1 migrations apply sulmos26-db --remote/);assert.match(workflow,/cloudflare\/wrangler-action@v4/);assert.match(workflow,/SULMOS26_SETUP_TOKEN/);assert.doesNotMatch(workflow,/push:\s*\n/)});
+test('deployment script rejects missing database ID and short bootstrap keys',()=>{const script=new URL('.github/scripts/prepare-deploy.mjs',root);for(const [id,key] of [['','x'.repeat(40)],['11111111-1111-1111-1111-111111111111','too-short']]){const v=spawnSync(process.execPath,[script.pathname],{cwd:root.pathname,env:{...process.env,SULMOS26_D1_DATABASE_ID:id,SULMOS26_SETUP_TOKEN:key},encoding:'utf8'});assert.notEqual(v.status,0)}});

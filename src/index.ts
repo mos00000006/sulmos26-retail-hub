@@ -1,5 +1,5 @@
 import {ROLES, DOC_TYPES, permission, validLines, validMoney, canApprove} from './logic.mjs';
-interface Env { DB: D1Database; ASSETS: Fetcher }
+interface Env { DB: D1Database; ASSETS: Fetcher; SULMOS26_SETUP_TOKEN?: string }
 type User = {id:string;name:string;email:string;role:string;active:number};
 const encoder=new TextEncoder();
 const json=(data:unknown,status=200,headers:Record<string,string>={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff',...headers}});
@@ -11,6 +11,15 @@ const hex=(buf:ArrayBuffer)=>Array.from(new Uint8Array(buf)).map(x=>x.toString(1
 const rand=(n=32)=>{const a=crypto.getRandomValues(new Uint8Array(n));return Array.from(a).map(x=>x.toString(16).padStart(2,'0')).join('')};
 async function hash(text:string){return hex(await crypto.subtle.digest('SHA-256',encoder.encode(text)))}
 async function passwordHash(pass:string,salt:string){const key=await crypto.subtle.importKey('raw',encoder.encode(pass),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:210000,hash:'SHA-256'},key,256))}
+// A fresh customer installation is locked until the private bootstrap key is configured.
+// Keep the key out of source code, URLs and browser storage; this header is sent only on first setup.
+function validSetupToken(provided:string|null, secret:string|undefined){
+ if(!provided || !secret || secret.length<32 || provided.length>256)return false;
+ const left=encoder.encode(provided),right=encoder.encode(secret);
+ let different=left.length ^ right.length;
+ for(let i=0;i<Math.max(left.length,right.length);i++)different|=(left[i]||0)^(right[i]||0);
+ return different===0;
+}
 const cookie=(token:string,secure:boolean)=>`sulmos_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${secure?'; Secure':''}`;
 const expiredCookie=(secure:boolean)=>`sulmos_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure?'; Secure':''}`;
 function guardOrigin(req:Request){const origin=req.headers.get('Origin'); if(origin && origin !== new URL(req.url).origin) return false;const site=req.headers.get('Sec-Fetch-Site');return !site || ['same-origin','none'].includes(site)}
@@ -29,6 +38,8 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  const db=env.DB;
  if(path==='/api/session' && req.method==='GET'){const owner=await db.prepare('SELECT id FROM users LIMIT 1').first();if(!owner)return json({setup:true,user:null});const u=await auth(req,db);return json({setup:false,user:u||null});}
  if(path==='/api/setup' && req.method==='POST'){
+  if(!validSetupToken(req.headers.get('x-sulmos26-setup-token'),env.SULMOS26_SETUP_TOKEN))
+   return fail('Owner setup is locked. Enter the private installation key supplied by your Sulmos26 administrator.',403);
   const b=await body(req);const business=clean(b.business,120),name=clean(b.name,100),email=clean(b.email,180).toLowerCase(),pass=clean(b.password,200);
   if(!business||!name||!/^\S+@\S+\.\S+$/.test(email)||pass.length<12)return fail('Business name, owner name, valid email, and password of at least 12 characters are required');
   const salt=rand(16),hashPass=await passwordHash(pass,salt),timestamp=now();
