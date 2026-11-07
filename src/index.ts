@@ -47,7 +47,18 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  const url=new URL(req.url);const path=url.pathname;
  // Read-only version marker, independent of D1 and any owner credentials.
  // If this URL returns 404, the diagnostic build was not deployed to this Worker.
- if(path==='/api/version' && req.method==='GET')return json({application:'Sulmos26 Retail Hub',version:'V7-SETUP-DIAGNOSTICS'});
+ if(path==='/api/version' && req.method==='GET')return json({application:'Sulmos26 Retail Hub',version:'V8-SETUP-REPAIR'});
+ // Safe public preflight: never returns installation tokens, account details or raw database errors.
+ if(path==='/api/setup-check' && req.method==='GET'){
+  if(!env.DB || typeof env.DB.prepare!=='function')return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_BINDING_MISSING',message:'Cloudflare Worker is missing its DB binding.'},503);
+  try{
+   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','business','sessions','audit_log')").all<{name:string}>();
+   const present=new Set((tables.results||[]).map(x=>x.name));
+   if(['users','business','sessions','audit_log'].some(name=>!present.has(name)))return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_MIGRATION_REQUIRED',message:'Database schema is incomplete. Apply the D1 migrations.'},503);
+   const owner=await env.DB.prepare('SELECT id FROM users LIMIT 1').first();
+   return json({version:'V8-SETUP-REPAIR',ready:true,setupRequired:!owner,code:owner?'OWNER_EXISTS':'READY_TO_CREATE_OWNER'});
+  }catch(e){console.error('SULMOS26_PREFLIGHT_DB',e instanceof Error?e.name:'unknown');return json({version:'V8-SETUP-REPAIR',ready:false,code:'DB_CHECK_FAILED',message:'Database could not be queried. Verify D1 binding and schema.'},503)}
+ }
  if(!path.startsWith('/api/'))return env.ASSETS.fetch(req);
  if(req.method!=='GET' && (!guardOrigin(req)||req.headers.get('content-type')?.split(';')[0]!=='application/json'))return fail('Request blocked: invalid origin or content type',403);
  try{

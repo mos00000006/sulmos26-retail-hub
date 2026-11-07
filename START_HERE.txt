@@ -1,0 +1,33 @@
+SULMOS26 V8 — FIRST OWNER SETUP REPAIR / DIAGNOSTIC PATCH
+
+This patch is made from the project ZIP supplied in this chat.
+It does NOT clear, replace, or migrate your production database.
+
+FILES TO REPLACE IN YOUR EXISTING GITHUB REPOSITORY:
+  src/index.ts
+  public/app.js
+  tests/setup-diagnostics-v7.test.mjs
+
+HOW TO APPLY:
+1. Extract this ZIP on your computer.
+2. Open https://github.com/mos00000006/sulmos26-retail-hub
+3. Upload/replace each file using the same folder paths, then commit to main.
+   IMPORTANT: do not upload the ZIP as one file to the repo.
+4. Open Actions > Deploy Sulmos26 to Cloudflare > Run workflow > main.
+5. Verify the LIVE URL:
+   https://sulmos26-retail-hub.moyanamoses006.workers.dev/api/version
+   EXPECTED: version V8-SETUP-REPAIR
+6. Open this diagnostic URL:
+   https://sulmos26-retail-hub.moyanamoses006.workers.dev/api/setup-check
+   READY_TO_CREATE_OWNER: fill in your setup form
+   OWNER_EXISTS: sign in instead of creating a second owner
+   DB_BINDING_MISSING: Cloudflare DB binding is absent
+   DB_MIGRATION_REQUIRED: D1 database schema needs migrations
+   DB_CHECK_FAILED: check D1 connection/migration in Cloudflare
+7. If setup still fails, copy ONLY the error code (SETUP_HASH / SETUP_WRITE etc.).
+
+Never paste installation key, password, or GitHub secrets into chat.
+Do not delete or recreate your D1 database.
+
+This patch improves diagnosis and eliminates ambiguous setup errors, but
+no one can guarantee a live login fix until the live D1/runtime issue is confirmed.
