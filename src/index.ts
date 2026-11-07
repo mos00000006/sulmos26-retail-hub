@@ -299,6 +299,58 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!['owner','manager'].includes(u.role) && (q.created_by!==u.id || !await scopedStore(db,u,q.store_id)))return fail('Quotation not found',404);
   return json({quotation:q});
  }
+ // Phase 6: reporting contains QUOTES and CASH-OFFICE HANDOFFS, never paid revenue.
+ // Aggregate from complete date-scoped records, not the limited recent-list endpoints.
+ if(path==='/api/sales-performance' && req.method==='GET'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales reporting access required',403);
+  const from=clean(url.searchParams.get('from'),10),to=clean(url.searchParams.get('to'),10),store=clean(url.searchParams.get('store_id'),60);
+  const dateValid=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v+'T00:00:00Z'));
+  if(!dateValid(from)||!dateValid(to)||from>to)return fail('Choose a valid reporting date range');
+  const days=Math.round((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000);
+  if(days>366)return fail('Reporting range cannot exceed 367 days');
+  if(store&&!await scopedStore(db,u,store))return fail('Store not available to this account',403);
+  // Both subqueries enforce creator and store restrictions independently.
+  const scope=['owner','manager'].includes(u.role)?'':' AND q.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=q.store_id)';
+  const orderScope=['owner','manager'].includes(u.role)?'':' AND so.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=so.store_id)';
+  const qb:unknown[]=[from,to],ob:unknown[]=[from,to];
+  const qs=store?' AND q.store_id=?':'',os=store?' AND so.store_id=?':'';
+  if(store){qb.push(store);ob.push(store)}
+  if(scope){qb.push(u.id,u.id);ob.push(u.id,u.id)}
+  const quotes=await rows<{created_by:string;consultant:string;store_id:string;store_name:string;quote_count:number;quote_value_cents:number;approved_discount_cents:number}>(db,`
+    SELECT q.created_by,u.name consultant,q.store_id,s.name store_name,COUNT(*) quote_count,
+    COALESCE(SUM(q.total_cents),0) quote_value_cents,COALESCE(SUM(q.discount_cents),0) approved_discount_cents
+    FROM quotations q JOIN users u ON u.id=q.created_by JOIN stores s ON s.id=q.store_id
+    WHERE substr(q.created_at,1,10)>=? AND substr(q.created_at,1,10)<=?${qs}${scope}
+    GROUP BY q.created_by,q.store_id ORDER BY quote_value_cents DESC`,...qb);
+  const orders=await rows<{created_by:string;store_id:string;order_count:number;order_value_cents:number;collection_count:number;delivery_count:number}>(db,`
+    SELECT so.created_by,so.store_id,COUNT(*) order_count,COALESCE(SUM(so.total_cents),0) order_value_cents,
+    SUM(CASE WHEN so.fulfilment='collection' THEN 1 ELSE 0 END) collection_count,
+    SUM(CASE WHEN so.fulfilment='delivery' THEN 1 ELSE 0 END) delivery_count
+    FROM sales_orders so WHERE substr(so.created_at,1,10)>=? AND substr(so.created_at,1,10)<=?${os}${orderScope}
+    GROUP BY so.created_by,so.store_id`,...ob);
+  // Outstanding follow-ups: saved quotes >=3 days old, without a confirmed sales order.
+  // This is a suggested SALES follow-up only, not proof of customer purchase intent.
+  const cutoff=new Date(Date.now()-3*86400000).toISOString().slice(0,10);
+  const followupArgs:unknown[]=[from,to,cutoff];
+  if(store)followupArgs.push(store);
+  if(scope)followupArgs.push(u.id,u.id);
+  const followups=await rows<{id:string;reference:string;customer_name:string;customer_phone:string;total_cents:number;created_at:string;store_name:string;created_by_name:string}>(db,`
+    SELECT q.id,q.reference,q.customer_name,q.customer_phone,q.total_cents,q.created_at,s.name store_name,u.name created_by_name
+    FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users u ON u.id=q.created_by
+    WHERE substr(q.created_at,1,10)>=? AND substr(q.created_at,1,10)<=?
+      AND substr(q.created_at,1,10)<=? AND q.status='awaiting_payment'
+      AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.quotation_id=q.id)${qs}${scope}
+    ORDER BY q.created_at ASC LIMIT 75`,...followupArgs);
+  const byKey=new Map<string,{created_by:string;consultant:string;store_id:string;store_name:string;quote_count:number;quote_value_cents:number;approved_discount_cents:number;order_count:number;order_value_cents:number;collection_count:number;delivery_count:number;conversion_percent:number}>();
+  for(const q of quotes)byKey.set(q.created_by+'|'+q.store_id,{...q,order_count:0,order_value_cents:0,collection_count:0,delivery_count:0,conversion_percent:0});
+  for(const o of orders){const key=o.created_by+'|'+o.store_id;let item=byKey.get(key);if(!item){const consultant=await db.prepare('SELECT name FROM users WHERE id=?').bind(o.created_by).first<{name:string}>();const storeRow=await db.prepare('SELECT name FROM stores WHERE id=?').bind(o.store_id).first<{name:string}>();item={created_by:o.created_by,consultant:consultant?.name||'Consultant',store_id:o.store_id,store_name:storeRow?.name||'Store',quote_count:0,quote_value_cents:0,approved_discount_cents:0,order_count:0,order_value_cents:0,collection_count:0,delivery_count:0,conversion_percent:0};byKey.set(key,item)}
+    item.order_count=Number(o.order_count);item.order_value_cents=Number(o.order_value_cents);item.collection_count=Number(o.collection_count);item.delivery_count=Number(o.delivery_count)}
+  const consultants=[...byKey.values()].map(x=>({...x,conversion_percent:x.quote_count?Math.round(x.order_count/x.quote_count*1000)/10:0}));
+  const totals=consultants.reduce((a,x)=>({quote_count:a.quote_count+x.quote_count,quote_value_cents:a.quote_value_cents+x.quote_value_cents,order_count:a.order_count+x.order_count,order_value_cents:a.order_value_cents+x.order_value_cents,approved_discount_cents:a.approved_discount_cents+x.approved_discount_cents,collection_count:a.collection_count+x.collection_count,delivery_count:a.delivery_count+x.delivery_count}),{quote_count:0,quote_value_cents:0,order_count:0,order_value_cents:0,approved_discount_cents:0,collection_count:0,delivery_count:0});
+  // Different metrics use the date of the corresponding event. Rates compare event counts
+  // within the selected period; they are NOT a same-cohort conversion measurement.
+  return json({from,to,store_id:store,totals,consultants,followups,followups_limited:followups.length===75,reporting_basis:'Quotes and orders by their own creation dates. No payment or revenue figures.'});
+ }
  // Phase 2 Sales Desk handoff: immutable-priced order queued for Cash Office.
  // Sales staff do not accept payments, issue receipts or post stock movements.
  if(path==='/api/sales-orders'){

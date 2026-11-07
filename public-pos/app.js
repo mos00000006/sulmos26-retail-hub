@@ -5,7 +5,7 @@ const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
   user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,fulfilmentOrderId:'',fulfilmentHistory:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,fulfilmentOrderId:'',fulfilmentHistory:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[], report:null,reportFrom:new Date().toISOString().slice(0,7)+'-01',reportTo:todayString(),reportStore:'',reportBusy:false
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -82,7 +82,7 @@ function workspace(){
   <main>
     <div class="topline">
       <div>
-        <span class="tag">SALES PHASE 5 · COLLECTIONS & DELIVERY COORDINATION</span>
+        <span class="tag">SALES PHASE 6 · REPORTS & FINAL SALES CONTROLS</span>
         <h1>Sales desk</h1>
         <p class="muted">Every saved quotation is automatically available at Cash Office by its quotation number. Discounts remain owner-only.</p>
       </div>
@@ -100,6 +100,20 @@ function workspace(){
     </section>
 
     ${state.notice?`<div class="notice ${state.notice.ok?'ok':''}" role="alert">${esc(state.notice.text)}</div>`:''}
+
+    <section class="panel report-panel" id="performanceReport">
+      <div class="panel-head"><div><h2>Sales performance & follow-up</h2><p class="muted">Quotation and Cash Office handoff activity only — these figures are NOT paid sales or receipts.</p></div><span class="pill">Phase 6</span></div>
+      <form id="reportFilters" class="report-filters">
+        <div class="field"><label>From</label><input type="date" name="from" value="${esc(state.reportFrom)}" required></div>
+        <div class="field"><label>To</label><input type="date" name="to" value="${esc(state.reportTo)}" required></div>
+        <div class="field"><label>Store</label><select name="store_id"><option value="">${['owner','manager'].includes(state.user.role)?'All stores':'My assigned stores'}</option>${state.stores.map(s=>`<option value="${esc(s.id)}" ${state.reportStore===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>
+        <button type="submit" class="btn primary" ${state.reportBusy?'disabled':''}>${state.reportBusy?'Loading…':'Load report'}</button>
+        <button type="button" id="reportCsv" class="btn" ${!state.report?'disabled':''}>Export CSV</button>
+      </form>
+      ${state.report?`<div class="report-kpis"><div><span>Quotations created</span><strong>${state.report.totals.quote_count}</strong></div><div><span>Quotation value</span><strong>${money(state.report.totals.quote_value_cents)}</strong></div><div><span>Orders confirmed</span><strong>${state.report.totals.order_count}</strong></div><div><span>Order value</span><strong>${money(state.report.totals.order_value_cents)}</strong></div><div><span>Approved discount value</span><strong>${money(state.report.totals.approved_discount_cents)}</strong></div><div><span>Old quotes for follow-up</span><strong>${state.report.followups.length}${state.report.followups_limited?'+':''}</strong></div></div>
+        <div class="report-tables"><div><h3>Consultant scorecard</h3><div class="report-scroll"><table class="report-table"><thead><tr><th>Consultant</th><th>Store</th><th>Quotes</th><th>Quote value</th><th>Orders</th><th>Orders value</th><th>Count ratio*</th></tr></thead><tbody>${state.report.consultants.length?state.report.consultants.map(r=>`<tr><td>${esc(r.consultant)}</td><td>${esc(r.store_name)}</td><td>${r.quote_count}</td><td>${money(r.quote_value_cents)}</td><td>${r.order_count}</td><td>${money(r.order_value_cents)}</td><td>${r.conversion_percent}%</td></tr>`).join(''):'<tr><td colspan="7" class="empty">No activity in selected period</td></tr>'}</tbody></table></div></div><div><h3>Quotation follow-up (3+ days)</h3><div class="report-scroll"><table class="report-table"><thead><tr><th>Quote</th><th>Customer</th><th>Consultant</th><th>Created</th><th>Value</th></tr></thead><tbody>${state.report.followups.length?state.report.followups.map(q=>`<tr><td>${esc(q.reference)}</td><td>${esc(q.customer_name)}${q.customer_phone?`<div class="muted">${esc(q.customer_phone)}</div>`:''}</td><td>${esc(q.created_by_name)}</td><td>${esc(q.created_at.slice(0,10))}</td><td>${money(q.total_cents)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No older unconfirmed quotes in this period</td></tr>'}</tbody></table></div></div></div>
+        <p class="muted mt12">*Count ratio = confirmed orders created during the period ÷ quotations created during the period; this is not a same-cohort conversion rate. Collection and delivery requests are not payment confirmations. Follow-up list is capped at 75.</p>`:'<div class="report-placeholder muted">Choose dates and select <b>Load report</b> for the full Sales Desk performance view.</div>'}
+    </section>
 
     <div class="workspace-grid">
       <section class="panel products-panel">
@@ -279,6 +293,13 @@ function wire(){
     return;
   }
   $('#signout').onclick=async()=>{await post('logout',{}).catch(()=>{}); state.user=null; state.basket=[]; state.notice=''; render()};
+  $('#reportFilters').onsubmit=async e=>{e.preventDefault();if(state.reportBusy)return;const data=Object.fromEntries(new FormData(e.target));state.reportFrom=data.from;state.reportTo=data.to;state.reportStore=data.store_id;state.reportBusy=true;try{const params=new URLSearchParams({from:state.reportFrom,to:state.reportTo});if(state.reportStore)params.set('store_id',state.reportStore);state.report=await api('sales-performance?'+params.toString());render()}catch(err){message(err)}finally{state.reportBusy=false}};
+  $('#reportCsv').onclick=()=>{
+    if(!state.report)return;
+    const csvCell=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+    const rows=[['Consultant','Store','Quote count','Quote value (ZAR)','Order count','Order value (ZAR)','Count ratio (%)'],...state.report.consultants.map(r=>[r.consultant,r.store_name,r.quote_count,(r.quote_value_cents/100).toFixed(2),r.order_count,(r.order_value_cents/100).toFixed(2),r.conversion_percent])];
+    const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`SULMOS26-Sales-Performance-${state.reportFrom}-to-${state.reportTo}.csv`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  };
   $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();await loadStockRequests();render()}catch(err){message(err)}};
   $('#search').oninput=e=>{state.search=e.target.value; render(); $('#search').focus(); $('#search').setSelectionRange(state.search.length,state.search.length)};
   $('#selectedCustomer').onchange=e=>{
