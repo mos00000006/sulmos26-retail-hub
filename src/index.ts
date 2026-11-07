@@ -140,6 +140,39 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(req.method==='GET'){let data;if(['owner','manager'].includes(u.role))data=await rows(db,'SELECT * FROM stores ORDER BY name');else data=await rows(db,'SELECT s.* FROM stores s JOIN user_stores us ON us.store_id=s.id WHERE us.user_id=? ORDER BY s.name',u.id);return json({items:data})}
   if(req.method==='POST'&&permission(u.role,'stores','write')){const b=await body(req),name=clean(b.name,120),code=clean(b.code,30).toUpperCase();if(!name||!/^[A-Z0-9_-]{2,30}$/.test(code))return fail('Store name and 2–30 character code required');const id=uid();await db.prepare('INSERT INTO stores(id,name,code,address,phone,created_at) VALUES(?,?,?,?,?,?)').bind(id,name,code,clean(b.address,300),clean(b.phone,50),now()).run();await log(db,u.id,'create','store',id);return json({ok:true,id},201)}
  }
+  
+  // SULMOS26 POS Phase 1: product lookup
+  // No cost prices or supplier information exposed.
+  if(path==='/api/pos/products' && req.method==='GET'){
+    if(!['owner','manager','sales','cashier'].includes(u.role)){
+      return fail('POS access required',403);
+    }
+
+    const q=clean(url.searchParams.get('q')||'',80);
+
+    const items=q
+      ?await rows(
+        db,
+        `SELECT sku,name,category,barcode,price_cents,active
+         FROM products
+         WHERE active=1
+         AND (sku LIKE ? OR name LIKE ? OR barcode LIKE ?)
+         ORDER BY name
+         LIMIT 200`,
+        `%${q}%`, `%${q}%`, `%${q}%`
+      )
+      :await rows(
+        db,
+        `SELECT sku,name,category,barcode,price_cents,active
+         FROM products
+         WHERE active=1
+         ORDER BY name
+         LIMIT 500`
+      );
+
+    return json({items});
+  }
+
  if(path==='/api/products'){
   if(req.method==='GET'){const q=clean(url.searchParams.get('q')||'',80);const items=q?await rows(db,'SELECT * FROM products WHERE sku LIKE ? OR name LIKE ? ORDER BY name LIMIT 200',`%${q}%`,`%${q}%`):await rows(db,'SELECT * FROM products ORDER BY name LIMIT 200');return json({items})}
   if(req.method==='POST'&&permission(u.role,'products','write')){const b=await body(req),name=clean(b.name,180),sku=clean(b.sku,100).toUpperCase(),price=Number(b.price_cents),cost=Number(b.cost_cents||0);if(!name||!sku||!validMoney(price)||!validMoney(cost))return fail('Valid SKU, name, and non-negative prices are required');const id=uid();await db.prepare('INSERT INTO products(id,sku,name,category,description,price_cents,cost_cents,barcode,image_url,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,sku,name,clean(b.category,80),clean(b.description,1000),price,cost,clean(b.barcode,80),clean(b.image_url,500),now()).run();await log(db,u.id,'create','product',id,sku);return json({ok:true,id},201)}
