@@ -121,6 +121,8 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(token)await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(token)).run();return json({ok:true},200,{'set-cookie':expiredCookie(url.protocol==='https:')});
  }
  const u=await auth(req,db);if(!u)return fail('Sign in required',401);
+ // Cashier accounts cannot access management, sales, stock or dispatch API endpoints.
+ if(u.role==='cashier' && !(path==='/api/stores'&&req.method==='GET') && !(path==='/api/logout'&&req.method==='POST') && !(path.startsWith('/api/cash-office/')&&req.method==='GET'||path==='/api/cash-office/payment'&&req.method==='POST'))return fail('Cash Office access only',403);
  if(path==='/api/my-username'&&req.method==='POST'){
   if(u.role!=='owner')return fail('Only the owner can set the owner username',403);
   const b=await body(req),username=clean(b.username,40).toLowerCase();if(!validUsername(username))return fail('Username must be 3–40 letters, numbers, dots, underscores or hyphens');
@@ -201,7 +203,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const sql=`SELECT ss.store_id,s.name store_name,ss.sku,p.name product_name,ss.on_hand,ss.updated_at,ss.updated_by,
    COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=ss.store_id AND r.sku=ss.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
    FROM stock_snapshots ss JOIN stores s ON s.id=ss.store_id JOIN products p ON p.sku=ss.sku`;
-  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 5000',store);
+  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 300',store);
   return json({items:items.map(x=>{const a=x as Record<string,unknown> & {on_hand:number;reserved:number};return {...a,available:Math.max(0,a.on_hand-a.reserved)}}),basis:'manager_snapshot',live:false});
  }
  if(path==='/api/sales-stock/snapshot'&&req.method==='POST'){
@@ -280,12 +282,13 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const record=await db.prepare('SELECT id,reference,total_cents,original_total_cents,discount_cents,status FROM quotations WHERE id=?').bind(quoteId).first<{id:string;reference:string;total_cents:number;original_total_cents:number|null;discount_cents:number;status:string}>();
   if(!record)return fail('Quotation not found',404);
   if(await db.prepare('SELECT id FROM sales_orders WHERE quotation_id=?').bind(quoteId).first())return fail('Quotation already sent to Cash Office. Revisions require a separate authorised workflow.',409);
+  if(await db.prepare('SELECT id FROM cash_receipts WHERE quotation_id=?').bind(quoteId).first())return fail('Paid quotations cannot be discounted',409);
   if(record.status!=='awaiting_payment')return fail('Only active unpaid quotations may be discounted',409);
   if(record.discount_cents!==0)return fail('Quotation already discounted. Further changes require a separate adjustment workflow.',409);
   const original=record.original_total_cents??record.total_cents;
   if(discount>original)return fail('Discount cannot exceed the quotation total');
   const timestamp=now();
-  const result=await db.prepare('UPDATE quotations SET original_total_cents=?,discount_cents=?,total_cents=?,discount_reason=?,discount_by=?,discount_at=?,revision=revision+1 WHERE id=? AND discount_cents=0 AND status=? AND total_cents=? AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.quotation_id=quotations.id)')
+  const result=await db.prepare('UPDATE quotations SET original_total_cents=?,discount_cents=?,total_cents=?,discount_reason=?,discount_by=?,discount_at=?,revision=revision+1 WHERE id=? AND discount_cents=0 AND status=? AND total_cents=? AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.quotation_id=quotations.id) AND NOT EXISTS (SELECT 1 FROM cash_receipts cr WHERE cr.quotation_id=quotations.id)')
    .bind(original,discount,original-discount,reason,u.id,timestamp,quoteId,'awaiting_payment',record.total_cents).run();
   if(result.meta.changes!==1)return fail('Quotation changed; refresh and try again',409);
   await log(db,u.id,'owner_discount','quotation',quoteId,JSON.stringify({reference:record.reference,original_total_cents:original,discount_cents:discount,final_total_cents:original-discount,reason}));
@@ -372,6 +375,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    if(u.role==='sales' && q.created_by!==u.id)return fail('Only your own quotations can be sent to Cash Office',403);
    if(q.status!=='awaiting_payment')return fail('Only active quotations can be sent to Cash Office',409);
    if(await db.prepare('SELECT id FROM sales_orders WHERE quotation_id=?').bind(q.id).first())return fail('This quotation has already been sent to Cash Office',409);
+   if(await db.prepare('SELECT id FROM cash_receipts WHERE quotation_id=?').bind(q.id).first())return fail('This quotation has already been paid',409);
    const id=uid(),ref=`SO-${Date.now().toString(36).toUpperCase()}-${id.slice(0,5).toUpperCase()}`;
    try{
     // Atomic snapshot: reject if a discount/revision changed since quote preview.
@@ -448,6 +452,66 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const items=await rows(db,'SELECT q.id,q.reference,q.customer_name,q.total_cents,q.discount_cents,q.status,q.created_at FROM quotations q WHERE q.customer_id=? AND q.store_id=? ORDER BY q.created_at DESC LIMIT 50',customer.id,customer.store_id);
   return json({customer,items});
  }
+ // Cash Office is the only module permitted to record payment. No stock movement occurs here.
+ if(path==='/api/cash-office/payment'&&req.method==='POST'){
+  if(!['owner','cashier'].includes(u.role))return fail('Cashier access required',403);
+  const b=await body(req);
+  const reference=clean(b.reference,100).toUpperCase(),store=clean(b.store_id,64),method=clean(b.method,20);
+  const external=clean(b.external_reference,100),expected=Number(b.expected_total_cents),revision=Number(b.expected_revision),tendered=Number(b.tendered_cents);
+  if(!/^Q-[A-Z0-9-]{5,90}$/.test(reference)||!store||!await scopedStore(db,u,store))return fail('Valid quotation and assigned store required',403);
+  if(!['cash','card','eft'].includes(method))return fail('Choose cash, card or EFT');
+  if(!Number.isSafeInteger(expected)||expected<=0||!Number.isSafeInteger(revision)||revision<0)return fail('Invalid quotation amount or revision');
+  if(!Number.isSafeInteger(tendered)||tendered<expected||tendered>100000000000)return fail('Tendered amount cannot be below total');
+  if(method!=='cash'&&(!external||external.length<4))return fail('Card or EFT confirmation reference is required');
+  if(method!=='cash'&&tendered!==expected)return fail('Card or EFT amount must equal quotation total');
+  const quote=await db.prepare('SELECT id,store_id,total_cents,revision,status FROM quotations WHERE UPPER(reference)=?').bind(reference).first<{id:string;store_id:string;total_cents:number;revision:number;status:string}>();
+  if(!quote||quote.store_id!==store)return fail('Quotation not found at this store',404);
+  if(quote.status!=='awaiting_payment')return fail('Only active quotations can be paid',409);
+  if(quote.total_cents!==expected||quote.revision!==revision)return fail('Quotation total has changed. Refresh before payment',409);
+  const existing=await db.prepare('SELECT id FROM cash_receipts WHERE quotation_id=?').bind(quote.id).first();
+  if(existing)return fail('Quotation already paid. Reprint the existing receipt instead.',409);
+  const id=uid(),receipt=`RC-${Date.now().toString(36).toUpperCase()}-${id.slice(0,6).toUpperCase()}`,paidAt=now();
+  // SQL conditions and UNIQUE(quotation_id) prevent a second payment even with concurrent cashiers.
+  try{
+   const result=await db.prepare(`INSERT INTO cash_receipts(id,reference,quotation_id,quotation_reference,quotation_revision,store_id,amount_cents,method,tendered_cents,change_cents,external_reference,cashier_id,paid_at)
+     SELECT ?,?,q.id,q.reference,q.revision,q.store_id,q.total_cents,?,?,?,?,?,?
+     FROM quotations q WHERE q.id=? AND q.store_id=? AND q.status='awaiting_payment' AND q.total_cents=? AND q.revision=?
+      AND NOT EXISTS(SELECT 1 FROM cash_receipts r WHERE r.quotation_id=q.id)`)
+    .bind(id,receipt,method,tendered,tendered-expected,external,u.id,paidAt,quote.id,store,expected,revision).run();
+   if(Number(result.meta?.changes||0)!==1)return fail('Quotation was changed or already paid. Refresh before retrying.',409);
+  }catch(e){
+   if(e instanceof Error&&/UNIQUE constraint failed/i.test(e.message))return fail('Quotation already paid. Reprint the existing receipt.',409);
+   throw e;
+  }
+  await log(db,u.id,'cash_payment','cash_receipt',id,JSON.stringify({quotation:reference,store_id:store,method,amount_cents:expected}));
+  return json({ok:true,receipt:{id,reference:receipt,quotation_reference:reference,amount_cents:expected,method,tendered_cents:tendered,change_cents:tendered-expected,paid_at:paidAt},stock_deducted:false},201);
+ }
+ if(path==='/api/cash-office/receipts'&&req.method==='GET'){
+  if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
+  const store=clean(url.searchParams.get('store_id'),64),date=clean(url.searchParams.get('date'),10);
+  if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return fail('Choose a valid date');
+  const start=new Date(date+'T00:00:00+02:00');
+  if(Number.isNaN(start.getTime()))return fail('Invalid date');
+  const from=start.toISOString(),to=new Date(start.getTime()+86400000).toISOString();
+  const items=await rows(db,`SELECT r.id,r.reference,r.quotation_reference,r.amount_cents,r.method,r.tendered_cents,r.change_cents,r.external_reference,r.paid_at,u.name cashier_name
+    FROM cash_receipts r JOIN users u ON u.id=r.cashier_id WHERE r.store_id=? AND r.paid_at>=? AND r.paid_at<? AND (?='owner' OR r.cashier_id=?) ORDER BY r.paid_at DESC LIMIT 150`,store,from,to,u.role,u.id);
+  const summary=await db.prepare(`SELECT COUNT(*) n,COALESCE(SUM(amount_cents),0) total_cents,
+    COALESCE(SUM(CASE WHEN method='cash' THEN amount_cents ELSE 0 END),0) cash_cents,
+    COALESCE(SUM(CASE WHEN method='card' THEN amount_cents ELSE 0 END),0) card_cents,
+    COALESCE(SUM(CASE WHEN method='eft' THEN amount_cents ELSE 0 END),0) eft_cents
+    FROM cash_receipts WHERE store_id=? AND paid_at>=? AND paid_at<? AND (?='owner' OR cashier_id=?)`).bind(store,from,to,u.role,u.id).first();
+  return json({items,summary,basis:u.role==='owner'?'store':'own_cashier'});
+ }
+ if(path==='/api/cash-office/receipt'&&req.method==='GET'){
+  if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
+  const reference=clean(url.searchParams.get('reference'),100).toUpperCase();
+  const item=await db.prepare(`SELECT r.*,q.customer_name,q.customer_phone,q.lines_json,s.name store_name,u.name cashier_name,
+      creator.name consultant_name FROM cash_receipts r JOIN quotations q ON q.id=r.quotation_id
+      JOIN stores s ON s.id=r.store_id JOIN users u ON u.id=r.cashier_id JOIN users creator ON creator.id=q.created_by WHERE r.reference=?`).bind(reference).first<{store_id:string;cashier_id:string}>();
+  if(!item||!await scopedStore(db,u,item.store_id)||u.role==='cashier'&&item.cashier_id!==u.id)return fail('Receipt not found',404);
+  return json({receipt:item});
+ }
  // A cashier can retrieve ANY saved quote for their assigned store by the exact quotation number.
  // No manual handoff is required for visibility. This endpoint is deliberately READ-ONLY.
  if(path==='/api/cash-office/quotation'&&req.method==='GET'){
@@ -456,12 +520,12 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!/^Q-[A-Z0-9-]{5,90}$/.test(reference))return fail('Enter a complete quotation number');
   const q=await db.prepare(`SELECT q.id,q.reference,q.store_id,q.customer_name,q.customer_phone,q.lines_json,q.total_cents,q.original_total_cents,q.discount_cents,q.status,q.revision,q.created_at,
    s.name store_name, creator.name created_by_name, approver.name discount_by_name,
-   so.reference sales_order_reference,so.status sales_order_status,so.fulfilment,so.delivery_address
+   so.reference sales_order_reference,so.status sales_order_status,so.fulfilment,so.delivery_address, cr.reference receipt_reference,cr.paid_at,cr.method paid_method
    FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by
-   LEFT JOIN users approver ON approver.id=q.discount_by LEFT JOIN sales_orders so ON so.quotation_id=q.id
-   WHERE UPPER(q.reference)=?`).bind(reference).first<{store_id:string;status:string;sales_order_reference:string|null}>();
+   LEFT JOIN users approver ON approver.id=q.discount_by LEFT JOIN sales_orders so ON so.quotation_id=q.id LEFT JOIN cash_receipts cr ON cr.quotation_id=q.id
+   WHERE UPPER(q.reference)=?`).bind(reference).first<{store_id:string;status:string;sales_order_reference:string|null;receipt_reference:string|null}>();
   if(!q||!await scopedStore(db,u,q.store_id))return fail('Quotation not found at your assigned store',404);
-  return json({quotation:q,payment_recorded:false,cash_office_status:q.status==='cancelled'?'cancelled':q.sales_order_reference?'awaiting_cashier':'awaiting_customer'});
+  return json({quotation:q,payment_recorded:!!q.receipt_reference,cash_office_status:q.receipt_reference?'paid':q.status==='cancelled'?'cancelled':q.sales_order_reference?'awaiting_cashier':'awaiting_customer'});
  }
  // Searchable lookup list for cashier queue. Includes ALL quotes (even without a sales order).
  if(path==='/api/cash-office/quotations'&&req.method==='GET'){

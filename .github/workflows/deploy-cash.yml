@@ -1,0 +1,38 @@
+name: Deploy SULMOS26 Cash Office (Separate Worker)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sulmos26-cash-office-production
+  cancel-in-progress: false
+jobs:
+  deploy-cash:
+    name: Deploy Cash Office to separate Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check application code
+        run: npm run check
+      - name: Prepare Cash Office Worker (existing shared D1)
+        run: node .github/scripts/prepare-cash-deploy.mjs
+        env:
+          SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+      - name: Deploy Cash Office (database migration must already be completed in Green Hub)
+        run: npx wrangler deploy --config wrangler.cash.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Display Cash Office URL
+        run: |
+          echo '### SULMOS26 Cash Office deployed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'https://sulmos26-cash-office.<your-workers-subdomain>.workers.dev/' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is a separate cashier app sharing the existing users, stores, quotations, and D1 database.' >> "$GITHUB_STEP_SUMMARY"
