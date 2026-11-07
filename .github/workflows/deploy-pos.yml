@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+
+>>>>>>> c199c2dd1ae73bdf083d049705279339b65ff87b
 name: Deploy SULMOS26 POS (Separate Worker)
 
 on:
@@ -29,15 +33,28 @@ jobs:
       - name: Prepare separate POS Worker (same D1 database)
         run: node .github/scripts/prepare-pos-deploy.mjs
         env:
+<<<<<<< HEAD
           SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
       - name: Deploy POS Worker (no database migrations, no owner setup secret)
         run: npx wrangler deploy --config wrangler.pos.deploy.jsonc
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+=======
+          SULMOS26_D1_DATABASE_ID: $&#123;&#123; secrets.SULMOS26_D1_DATABASE_ID &#125;&#125;
+      - name: Deploy POS Worker (no database migrations, no owner setup secret)
+        run: npx wrangler deploy --config wrangler.pos.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: $&#123;&#123; secrets.CLOUDFLARE_ACCOUNT_ID &#125;&#125;
+          CLOUDFLARE_API_TOKEN: $&#123;&#123; secrets.CLOUDFLARE_API_TOKEN &#125;&#125;
+>>>>>>> c199c2dd1ae73bdf083d049705279339b65ff87b
       - name: Show location
         run: |
           echo '### SULMOS26 POS deployed' >> "$GITHUB_STEP_SUMMARY"
           echo 'Open Cloudflare > Workers & Pages > **sulmos26-pos** > Visit.' >> "$GITHUB_STEP_SUMMARY"
           echo 'This is a separate POS address, but shares the Manager Hub D1 DB, accounts, and quotation records.' >> "$GITHUB_STEP_SUMMARY"
           echo 'For a branded domain add **pos.yourdomain.co.za** as a custom domain for this Worker in Cloudflare.' >> "$GITHUB_STEP_SUMMARY"
+<<<<<<< HEAD
+=======
+  
+>>>>>>> c199c2dd1ae73bdf083d049705279339b65ff87b
