@@ -197,12 +197,13 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!reason||reason.length<5||!Number.isSafeInteger(discount)||discount<1)return fail('Enter a valid discount and reason (at least 5 characters)');
   const record=await db.prepare('SELECT id,reference,total_cents,original_total_cents,discount_cents,status FROM quotations WHERE id=?').bind(quoteId).first<{id:string;reference:string;total_cents:number;original_total_cents:number|null;discount_cents:number;status:string}>();
   if(!record)return fail('Quotation not found',404);
+  if(await db.prepare('SELECT id FROM sales_orders WHERE quotation_id=?').bind(quoteId).first())return fail('Quotation already sent to Cash Office. Revisions require a separate authorised workflow.',409);
   if(record.status!=='awaiting_payment')return fail('Only active unpaid quotations may be discounted',409);
   if(record.discount_cents!==0)return fail('Quotation already discounted. Further changes require a separate adjustment workflow.',409);
   const original=record.original_total_cents??record.total_cents;
   if(discount>original)return fail('Discount cannot exceed the quotation total');
   const timestamp=now();
-  const result=await db.prepare('UPDATE quotations SET original_total_cents=?,discount_cents=?,total_cents=?,discount_reason=?,discount_by=?,discount_at=?,revision=revision+1 WHERE id=? AND discount_cents=0 AND status=? AND total_cents=?')
+  const result=await db.prepare('UPDATE quotations SET original_total_cents=?,discount_cents=?,total_cents=?,discount_reason=?,discount_by=?,discount_at=?,revision=revision+1 WHERE id=? AND discount_cents=0 AND status=? AND total_cents=? AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.quotation_id=quotations.id)')
    .bind(original,discount,original-discount,reason,u.id,timestamp,quoteId,'awaiting_payment',record.total_cents).run();
   if(result.meta.changes!==1)return fail('Quotation changed; refresh and try again',409);
   await log(db,u.id,'owner_discount','quotation',quoteId,JSON.stringify({reference:record.reference,original_total_cents:original,discount_cents:discount,final_total_cents:original-discount,reason}));
@@ -215,6 +216,45 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!q)return fail('Quotation not found',404);
   if(!['owner','manager'].includes(u.role) && (q.created_by!==u.id || !await scopedStore(db,u,q.store_id)))return fail('Quotation not found',404);
   return json({quotation:q});
+ }
+ // Phase 2 Sales Desk handoff: immutable-priced order queued for Cash Office.
+ // Sales staff do not accept payments, issue receipts or post stock movements.
+ if(path==='/api/sales-orders'){
+  if(req.method==='GET'){
+   if(!['owner','manager','sales'].includes(u.role))return fail('Sales order access required',403);
+   const sql='SELECT so.id,so.reference,so.quotation_id,so.quotation_reference,so.store_id,so.customer_name,so.customer_phone,so.total_cents,so.fulfilment,so.status,so.created_by,so.created_at,s.name store_name,creator.name created_by_name FROM sales_orders so JOIN stores s ON s.id=so.store_id JOIN users creator ON creator.id=so.created_by';
+   const items=['owner','manager'].includes(u.role)
+    ?await rows(db,sql+' ORDER BY so.created_at DESC LIMIT 200')
+    :await rows(db,sql+' WHERE so.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=so.store_id) ORDER BY so.created_at DESC LIMIT 200',u.id,u.id);
+   return json({items});
+  }
+  if(req.method==='POST'){
+   if(!['owner','manager','sales'].includes(u.role))return fail('Sales order access required',403);
+   const b=await body(req),quotationId=clean(b.quotation_id,64),fulfilment=clean(b.fulfilment,24),deliveryAddress=clean(b.delivery_address,300),note=clean(b.sales_note,500);
+   if(!quotationId||!['collection','delivery'].includes(fulfilment))return fail('Quotation and collection/delivery choice are required');
+   if(fulfilment==='delivery' && deliveryAddress.length<5)return fail('Enter the delivery address');
+   const q=await db.prepare('SELECT id,reference,store_id,customer_name,customer_phone,lines_json,total_cents,status,created_by,revision FROM quotations WHERE id=?').bind(quotationId).first<{id:string;reference:string;store_id:string;customer_name:string;customer_phone:string;lines_json:string;total_cents:number;status:string;created_by:string;revision:number}>();
+   if(!q||!await scopedStore(db,u,q.store_id))return fail('Quotation not found',404);
+   if(u.role==='sales' && q.created_by!==u.id)return fail('Only your own quotations can be sent to Cash Office',403);
+   if(q.status!=='awaiting_payment')return fail('Only active quotations can be sent to Cash Office',409);
+   if(await db.prepare('SELECT id FROM sales_orders WHERE quotation_id=?').bind(q.id).first())return fail('This quotation has already been sent to Cash Office',409);
+   const id=uid(),ref=`SO-${Date.now().toString(36).toUpperCase()}-${id.slice(0,5).toUpperCase()}`;
+   try{
+    // Atomic snapshot: reject if a discount/revision changed since quote preview.
+    const inserted=await db.prepare(`INSERT INTO sales_orders
+      (id,reference,quotation_id,quotation_reference,quotation_revision,store_id,customer_name,customer_phone,lines_json,total_cents,fulfilment,delivery_address,sales_note,created_by,created_at)
+      SELECT ?,?,q.id,q.reference,q.revision,q.store_id,q.customer_name,q.customer_phone,q.lines_json,q.total_cents,?,?,?,?,?
+      FROM quotations q WHERE q.id=? AND q.status='awaiting_payment' AND q.total_cents=? AND q.revision=?
+      AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE so.quotation_id=q.id)`)
+      .bind(id,ref,fulfilment,fulfilment==='delivery'?deliveryAddress:'',note,u.id,now(),q.id,q.total_cents,q.revision||0).run();
+    if(inserted.meta.changes!==1)return fail('Quotation changed; refresh before sending to Cash Office',409);
+   }catch(e){
+    if(await db.prepare('SELECT id FROM sales_orders WHERE quotation_id=?').bind(q.id).first())return fail('This quotation has already been sent to Cash Office',409);
+    throw e;
+   }
+   await log(db,u.id,'send_to_cash_office','sales_order',id,JSON.stringify({reference:ref,quotation:q.reference,total_cents:q.total_cents,fulfilment}));
+   return json({ok:true,id,reference:ref,status:'awaiting_cashier'},201);
+  }
  }
  if(path==='/api/quotations'){
   if(req.method==='GET'){

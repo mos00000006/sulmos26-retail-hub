@@ -4,8 +4,8 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).format((Number(c)||0)/100);
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
-  user:null,stores:[],products:[],quotes:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:''
+  user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:''
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -26,10 +26,12 @@ function quoteOriginal(q){
   return Number(q.original_total_cents ?? q.total_cents ?? 0);
 }
 function quoteStatus(q){
+  if(state.orders.some(o=>o.quotation_id===q.id)) return 'Awaiting Cashier';
   if(Number(q.discount_cents||0)>0 || Number(q.discount_percent_basis_points||0)>0) return 'Discount approved';
   return 'Quotation saved';
 }
 function statusClass(q){
+  if(state.orders.some(o=>o.quotation_id===q.id))return 'status-cashier';
   if(Number(q.discount_cents||0)>0 || Number(q.discount_percent_basis_points||0)>0) return 'status-approved';
   return 'status-open';
 }
@@ -65,12 +67,14 @@ function currentBasketTotal(){return state.basket.reduce((s,x)=>s+x.price_cents*
 function stats(){
   const quotesToday=todayQuotes();
   const totalValue=quotesToday.reduce((s,q)=>s+quoteTotal(q),0);
-  const approved=state.quotes.filter(q=>statusClass(q)==='status-approved').length;
+  const approved=state.quotes.filter(q=>Number(q.discount_cents||0)>0).length;
   return {quotesToday:quotesToday.length,totalValue,approved,lines:state.basket.reduce((s,x)=>s+x.qty,0)};
 }
 function workspace(){
   const rows=filteredProducts();
   const qrows=filteredQuotes().slice(0,12);
+  const handoffQuote=state.quotes.find(q=>q.id===state.handoffId);
+  const sentOrders=state.orders.slice(0,8);
   const total=currentBasketTotal();
   const s=stats();
   const cats=categories();
@@ -167,11 +171,18 @@ function workspace(){
           </div>
         </section>
 
+        <section class="panel compact-panel cashier-panel">
+          <div class="panel-head"><div><h2>Cash Office handoff</h2><p class="muted">Sales do not receive or record payments.</p></div><span class="status status-cashier">Sales only</span></div>
+          ${handoffQuote?`<form id="handoffForm"><p class="handoff-quote"><strong>${esc(handoffQuote.reference)}</strong> · ${money(quoteTotal(handoffQuote))}</p><div class="field"><label>Order type</label><select id="handoffFulfilment" name="fulfilment"><option value="collection" ${state.handoffFulfilment==='collection'?'selected':''}>Customer collection</option><option value="delivery" ${state.handoffFulfilment==='delivery'?'selected':''}>Customer delivery</option></select></div><div class="field" id="handoffAddressWrap" ${state.handoffFulfilment==='delivery'?'':'hidden'}><label>Delivery address</label><input name="delivery_address" maxlength="300" placeholder="Full delivery address" value="${esc(state.handoffAddress)}"></div><div class="field"><label>Instructions (optional)</label><input name="sales_note" maxlength="500" placeholder="Collection or delivery instructions" value="${esc(state.handoffNote)}"></div><div class="btn-row"><button type="submit" class="btn primary" ${state.busy?'disabled':''}>Send to Cash Office</button><button type="button" class="btn mini" id="cancelHandoff">Cancel</button></div></form>`:'<p class="muted">Choose a saved quotation below, then click <b>Send to Cash Office</b>. Cash Office will handle all payments later.</p>'}
+          <h3 class="section-mini">Recently sent orders</h3>
+          ${sentOrders.length?sentOrders.map(o=>`<div class="mini-order"><b>${esc(o.reference)}</b><span>${esc(o.customer_name)} · ${money(o.total_cents)}</span><small>Awaiting Cashier · ${esc(o.fulfilment)}</small></div>`).join(''):'<div class="muted">No orders sent yet.</div>'}
+        </section>
+
         <section class="panel compact-panel">
-          <div class="panel-head"><div><h2>My quotations</h2><p class="muted">Search, reprint, and check discount status.</p></div></div>
+          <div class="panel-head"><div><h2>My quotations</h2><p class="muted">Search, reprint, and send orders to Cash Office.</p></div></div>
           <div class="search-row slim"><input id="quoteSearch" placeholder="Search quote number or customer" value="${esc(state.quoteSearch)}"></div>
           <div class="quotes-list">
-            ${qrows.length?qrows.map(q=>`<div class="quote-card"><div class="quote-top"><strong>${esc(q.reference)}</strong><span class="status ${statusClass(q)}">${esc(quoteStatus(q))}</span></div><div class="muted quote-meta">${esc(q.customer_name||'Walk-in customer')} · ${esc(q.store_name||'')} · ${esc(new Date(q.created_at).toLocaleDateString('en-ZA'))}</div><div class="quote-money"><span>${money(quoteTotal(q))}</span>${quoteOriginal(q)!==quoteTotal(q)?`<small>Orig ${money(quoteOriginal(q))}</small>`:''}</div><div class="btn-row mt10"><button class="btn mini" data-print="${esc(q.id)}">Print</button><button class="btn mini" data-reloadquote="${esc(q.id)}">Refresh & Print</button></div></div>`).join(''):'<div class="empty">No quotations found.</div>'}
+            ${qrows.length?qrows.map(q=>`<div class="quote-card"><div class="quote-top"><strong>${esc(q.reference)}</strong><span class="status ${statusClass(q)}">${esc(quoteStatus(q))}</span></div><div class="muted quote-meta">${esc(q.customer_name||'Walk-in customer')} · ${esc(q.store_name||'')} · ${esc(new Date(q.created_at).toLocaleDateString('en-ZA'))}</div><div class="quote-money"><span>${money(quoteTotal(q))}</span>${quoteOriginal(q)!==quoteTotal(q)?`<small>Orig ${money(quoteOriginal(q))}</small>`:''}</div><div class="btn-row mt10"><button class="btn mini" data-print="${esc(q.id)}">Print</button><button class="btn mini" data-reloadquote="${esc(q.id)}">Refresh & Print</button>${state.orders.some(o=>o.quotation_id===q.id)?'<span class="status status-cashier">Sent to Cash Office</span>':`<button class="btn mini handoff-btn" data-handoff="${esc(q.id)}">Send to Cash Office</button>`}</div></div>`).join(''):'<div class="empty">No quotations found.</div>'}
           </div>
         </section>
       </aside>
@@ -180,10 +191,11 @@ function workspace(){
 }
 function render(){document.title='SULMOS26 POS';$('#app').innerHTML=state.user?workspace():login();wire()}
 async function refresh(){
-  const [stores,products,quotes]=await Promise.all([api('stores'),api('pos/products'),api('quotations')]);
+  const [stores,products,quotes,orders]=await Promise.all([api('stores'),api('pos/products'),api('quotations'),api('sales-orders')]);
   state.stores=(stores.items||[]).filter(s=>s.active);
   state.products=products.items||[];
   state.quotes=quotes.items||[];
+  state.orders=orders.items||[];
   if(!state.stores.some(s=>s.id===state.currentStore)) state.currentStore=state.stores[0]?.id||'';
 }
 function printQuote(q){
@@ -229,6 +241,23 @@ function wire(){
   $$('.chip[data-cat]').forEach(b=>b.onclick=()=>{state.categoryFilter=b.dataset.cat||''; render()});
   $$('.quote-card [data-print], [data-print]').forEach(b=>b.onclick=()=>{const q=state.quotes.find(x=>x.id===b.dataset.print); if(q) printQuote(q)});
   $$('[data-reloadquote]').forEach(b=>b.onclick=()=>reloadQuoteAndPrint(b.dataset.reloadquote));
+  $$('[data-handoff]').forEach(b=>b.onclick=()=>{state.handoffId=b.dataset.handoff;state.handoffFulfilment='collection';state.handoffAddress='';state.handoffNote='';render();document.querySelector('.cashier-panel')?.scrollIntoView({behavior:'smooth',block:'center'})});
+  if($('#handoffForm')){
+    $('#cancelHandoff').onclick=()=>{state.handoffId='';render()};
+    $('#handoffFulfilment').onchange=e=>{state.handoffFulfilment=e.target.value;$('#handoffAddressWrap').hidden=state.handoffFulfilment!=='delivery'};
+    $('#handoffForm').onsubmit=async e=>{
+      e.preventDefault();if(state.busy)return;
+      const data=Object.fromEntries(new FormData(e.target));
+      state.busy=true;
+      try{
+        // Always refresh the quotation before creating its immutable cashier handoff.
+        const latest=await api('quotations/'+encodeURIComponent(state.handoffId));
+        if(!latest.quotation)throw Error('Quotation not found');
+        const result=await post('sales-orders',{quotation_id:state.handoffId,fulfilment:data.fulfilment,delivery_address:data.delivery_address||'',sales_note:data.sales_note||''});
+        state.handoffId='';await refresh();message(`Sales order ${result.reference} sent to Cash Office. No payment recorded.`,true);
+      }catch(err){message(err)}finally{state.busy=false}
+    };
+  }
   $$('[data-add]').forEach(b=>b.onclick=()=>{const p=state.products.find(x=>x.sku===b.dataset.add); if(!p) return; const existing=state.basket.find(x=>x.sku===p.sku); if(existing) existing.qty++; else state.basket.push({sku:p.sku,name:p.name,price_cents:p.price_cents,qty:1}); render()});
   $$('[data-remove]').forEach(b=>b.onclick=()=>{state.basket.splice(Number(b.dataset.remove),1); render()});
   $$('[data-qty]').forEach(inp=>inp.onchange=()=>{const qty=Number(inp.value); if(!Number.isInteger(qty)||qty<1||qty>1000000){message('Quantity must be a positive whole number'); return;} state.basket[Number(inp.dataset.qty)].qty=qty; render()});

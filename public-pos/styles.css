@@ -128,3 +128,10 @@ header .btn-row { align-items: center; justify-content: flex-end; }
 @media print {
   main { max-width: none; }
 }
+
+/* Sales → Cash Office handoff, no payment controls in the Sales Desk */
+.cashier-panel{border-top:3px solid #b72738}.cashier-panel .panel-head{align-items:center}
+.status-cashier{background:#fff2de;color:#8f570d}.section-mini{font-size:13px;letter-spacing:.02em;margin:18px 0 10px;color:#535b66}
+.handoff-quote{margin-bottom:14px;padding:10px;border-radius:9px;background:#fff5f5;color:#303841}
+.mini-order{border-top:1px solid #e9ebef;padding:10px 0;display:grid;gap:3px;font-size:12px}.mini-order b{font-size:13px}.mini-order span{color:#495360}.mini-order small{color:#975c0e}
+.handoff-btn{background:#fff7f0;border-color:#e6c6a5;color:#855010}#handoffAddressWrap[hidden]{display:none}
