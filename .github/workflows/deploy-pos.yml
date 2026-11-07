@@ -13,33 +13,63 @@ concurrency:
 
 jobs:
   deploy-pos:
-    name: Deploy red POS to its own workers.dev address
+    name: Deploy SULMOS26 Red POS
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
-      - name: Checkout project
+      - name: Download project
         uses: actions/checkout@v4
-      - name: Node 22
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Check application code
+
+      - name: Check application
         run: npm run check
-      - name: Prepare separate POS Worker (same D1 database)
-        run: node .github/scripts/prepare-pos-deploy.mjs
+
+      - name: Verify Cloudflare configuration
         env:
-          SULMOS26_D1_DATABASE_ID: $&#123;&#123; secrets.SULMOS26_D1_DATABASE_ID &#125;&#125;
-      - name: Deploy POS Worker (no database migrations, no owner setup secret)
-        run: npx wrangler deploy --config wrangler.pos.deploy.jsonc
-        env:
-          CLOUDFLARE_ACCOUNT_ID: $&#123;&#123; secrets.CLOUDFLARE_ACCOUNT_ID &#125;&#125;
-          CLOUDFLARE_API_TOKEN: $&#123;&#123; secrets.CLOUDFLARE_API_TOKEN &#125;&#125;
-      - name: Show location
+          DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo '### SULMOS26 POS deployed' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Open Cloudflare > Workers & Pages > **sulmos26-pos** > Visit.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'This is a separate POS address, but shares the Manager Hub D1 DB, accounts, and quotation records.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'For a branded domain add **pos.yourdomain.co.za** as a custom domain for this Worker in Cloudflare.' >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$DATABASE_ID" ]; then
+            echo "::error::SULMOS26_D1_DATABASE_ID is empty or unavailable. Check Repository secrets."
+            exit 1
+          fi
+
+          if ! [[ "$DATABASE_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            echo "::error::Database ID must be a Cloudflare D1 UUID. Update the GitHub secret."
+            exit 1
+          fi
+
+          if [ -z "$API_TOKEN" ] || [ -z "$ACCOUNT_ID" ]; then
+            echo "::error::Cloudflare API token or account ID is missing."
+            exit 1
+          fi
+
+          echo "Cloudflare configuration validated."
+
+      - name: Prepare separate POS Worker
+        env:
+          SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+        run: node .github/scripts/prepare-pos-deploy.mjs
+
+      - name: Deploy Red POS to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.pos.deploy.jsonc
+
+      - name: Deployment completed
+        run: |
+          echo "### SULMOS26 POS Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Worker: sulmos26-pos" >> "$GITHUB_STEP_SUMMARY"
+          echo "Open Cloudflare Workers & Pages and click Visit." >> "$GITHUB_STEP_SUMMARY"
+
   
