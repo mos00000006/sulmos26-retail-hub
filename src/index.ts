@@ -140,48 +140,25 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(req.method==='GET'){let data;if(['owner','manager'].includes(u.role))data=await rows(db,'SELECT * FROM stores ORDER BY name');else data=await rows(db,'SELECT s.* FROM stores s JOIN user_stores us ON us.store_id=s.id WHERE us.user_id=? ORDER BY s.name',u.id);return json({items:data})}
   if(req.method==='POST'&&permission(u.role,'stores','write')){const b=await body(req),name=clean(b.name,120),code=clean(b.code,30).toUpperCase();if(!name||!/^[A-Z0-9_-]{2,30}$/.test(code))return fail('Store name and 2–30 character code required');const id=uid();await db.prepare('INSERT INTO stores(id,name,code,address,phone,created_at) VALUES(?,?,?,?,?,?)').bind(id,name,code,clean(b.address,300),clean(b.phone,50),now()).run();await log(db,u.id,'create','store',id);return json({ok:true,id},201)}
  }
-  
-  // SULMOS26 POS Phase 1: product lookup
-  // No cost prices or supplier information exposed.
-  if(path==='/api/pos/products' && req.method==='GET'){
-    if(!['owner','manager','sales','cashier'].includes(u.role)){
-      return fail('POS access required',403);
-    }
-
-    const q=clean(url.searchParams.get('q')||'',80);
-
-    const items=q
-      ?await rows(
-        db,
-        `SELECT sku,name,category,barcode,price_cents,active
-         FROM products
-         WHERE active=1
-         AND (sku LIKE ? OR name LIKE ? OR barcode LIKE ?)
-         ORDER BY name
-         LIMIT 200`,
-        `%${q}%`, `%${q}%`, `%${q}%`
-      )
-      :await rows(
-        db,
-        `SELECT sku,name,category,barcode,price_cents,active
-         FROM products
-         WHERE active=1
-         ORDER BY name
-         LIMIT 500`
-      );
-
-    return json({items});
-  }
-
+ // POS product lookup excludes cost price and is available only to POS-authorized roles.
+ if(path==='/api/pos/products' && req.method==='GET'){
+  if(!['owner','manager','sales','cashier'].includes(u.role))return fail('POS access required',403);
+  const q=clean(url.searchParams.get('q')||'',80);
+  const items=q?await rows(db,'SELECT sku,name,category,barcode,price_cents,active FROM products WHERE active=1 AND (sku LIKE ? OR name LIKE ? OR barcode LIKE ?) ORDER BY name LIMIT 200',`%${q}%`,`%${q}%`,`%${q}%`):await rows(db,'SELECT sku,name,category,barcode,price_cents,active FROM products WHERE active=1 ORDER BY name LIMIT 500');
+  return json({items});
+ }
  if(path==='/api/products'){
   if(req.method==='GET'){const q=clean(url.searchParams.get('q')||'',80);const items=q?await rows(db,'SELECT * FROM products WHERE sku LIKE ? OR name LIKE ? ORDER BY name LIMIT 200',`%${q}%`,`%${q}%`):await rows(db,'SELECT * FROM products ORDER BY name LIMIT 200');return json({items})}
   if(req.method==='POST'&&permission(u.role,'products','write')){const b=await body(req),name=clean(b.name,180),sku=clean(b.sku,100).toUpperCase(),price=Number(b.price_cents),cost=Number(b.cost_cents||0);if(!name||!sku||!validMoney(price)||!validMoney(cost))return fail('Valid SKU, name, and non-negative prices are required');const id=uid();await db.prepare('INSERT INTO products(id,sku,name,category,description,price_cents,cost_cents,barcode,image_url,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,sku,name,clean(b.category,80),clean(b.description,1000),price,cost,clean(b.barcode,80),clean(b.image_url,500),now()).run();await log(db,u.id,'create','product',id,sku);return json({ok:true,id},201)}
  }
  if(path==='/api/users'){
-  if(req.method==='GET'&&['owner','manager'].includes(u.role))return json({items:await rows(db,'SELECT id,name,username,role,active,created_at FROM users ORDER BY created_at'),assignments:await rows(db,'SELECT user_id,store_id FROM user_stores')});
-  if(req.method==='POST'&&u.role==='owner'){
+  if(req.method==='GET'&&['owner','manager'].includes(u.role))return json({items:await rows(db,u.role==='owner'?'SELECT id,name,username,role,active,created_at FROM users ORDER BY created_at':"SELECT id,name,username,role,active,created_at FROM users WHERE role='sales' ORDER BY created_at"),assignments:await rows(db,'SELECT user_id,store_id FROM user_stores')});
+  if(req.method==='POST'&&['owner','manager'].includes(u.role)){
    const b=await body(req),name=clean(b.name,100),username=clean(b.username,40).toLowerCase(),pass=clean(b.password,200),role=clean(b.role,30);
-   const stores=Array.isArray(b.store_ids)?b.store_ids.filter(x=>typeof x==='string').slice(0,50) as string[]:[];
+   if(u.role==='manager'&&role!=='sales')return fail('Managers may create sales consultants only',403);
+   const stores=Array.isArray(b.store_ids)?[...new Set(b.store_ids.filter(x=>typeof x==='string').slice(0,50))] as string[]:[];
+   if(!stores.length)return fail('Assign at least one store to the employee');
+   for(const sid of stores)if(!await scopedStore(db,u,sid))return fail('Invalid store assignment',403);
    if(!name||!validUsername(username)||pass.length<12||!ROLES.includes(role)||role==='owner')return fail('Name, valid username, password of at least 12 characters, and permitted member role are required');
    const id=uid(),salt=rand(16),email=internalMemberEmail(username);
    const stmts=[db.prepare('INSERT INTO users(id,name,email,username,password_salt,password_hash,role,created_at) VALUES(?,?,?,?,?,?,?,?)').bind(id,name,email,username,salt,await passwordHash(pass,salt),role,now())];
@@ -211,8 +188,43 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   else{if(!canApprove(u.role,d.created_by,u.id,d.status))return fail('Requires independent manager approval',403);await db.prepare('UPDATE stock_documents SET status=?,reviewed_by=?,reviewed_at=? WHERE id=? AND status=?').bind(kind==='approve'?'approved':'rejected',u.id,now(),id,'submitted').run()}
   await log(db,u.id,kind,'stock_document',id,'Document-control status only; no physical stock movement');return json({ok:true})
  }
+ // Owner-only discount on an existing quote; audit and optimistic single-write guard.
+ const discountMatch=path.match(/^\/api\/quotations\/([^/]+)\/discount$/);
+ if(discountMatch && req.method==='POST'){
+  if(u.role!=='owner')return fail('Only the owner may apply quotation discounts',403);
+  const b=await body(req),quoteId=discountMatch[1],reason=clean(b.reason,300);
+  const discount=Number(b.discount_cents);
+  if(!reason||reason.length<5||!Number.isSafeInteger(discount)||discount<1)return fail('Enter a valid discount and reason (at least 5 characters)');
+  const record=await db.prepare('SELECT id,reference,total_cents,original_total_cents,discount_cents,status FROM quotations WHERE id=?').bind(quoteId).first<{id:string;reference:string;total_cents:number;original_total_cents:number|null;discount_cents:number;status:string}>();
+  if(!record)return fail('Quotation not found',404);
+  if(record.status!=='awaiting_payment')return fail('Only active unpaid quotations may be discounted',409);
+  if(record.discount_cents!==0)return fail('Quotation already discounted. Further changes require a separate adjustment workflow.',409);
+  const original=record.original_total_cents??record.total_cents;
+  if(discount>original)return fail('Discount cannot exceed the quotation total');
+  const timestamp=now();
+  const result=await db.prepare('UPDATE quotations SET original_total_cents=?,discount_cents=?,total_cents=?,discount_reason=?,discount_by=?,discount_at=?,revision=revision+1 WHERE id=? AND discount_cents=0 AND status=? AND total_cents=?')
+   .bind(original,discount,original-discount,reason,u.id,timestamp,quoteId,'awaiting_payment',record.total_cents).run();
+  if(result.meta.changes!==1)return fail('Quotation changed; refresh and try again',409);
+  await log(db,u.id,'owner_discount','quotation',quoteId,JSON.stringify({reference:record.reference,original_total_cents:original,discount_cents:discount,final_total_cents:original-discount,reason}));
+  return json({ok:true,reference:record.reference,revision:1,total_cents:original-discount});
+ }
+ // Retrieve a fresh quotation before reprinting. Staff may access only their own records.
+ const quoteMatch=path.match(/^\/api\/quotations\/([^/]+)$/);
+ if(quoteMatch && req.method==='GET'){
+  const q=await db.prepare('SELECT q.*,s.name store_name,creator.name created_by_name,approver.name discount_by_name FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by LEFT JOIN users approver ON approver.id=q.discount_by WHERE q.id=?').bind(quoteMatch[1]).first<{created_by:string;store_id:string}>();
+  if(!q)return fail('Quotation not found',404);
+  if(!['owner','manager'].includes(u.role) && (q.created_by!==u.id || !await scopedStore(db,u,q.store_id)))return fail('Quotation not found',404);
+  return json({quotation:q});
+ }
  if(path==='/api/quotations'){
-  if(req.method==='GET'){const items=['owner','manager'].includes(u.role)?await rows(db,'SELECT q.*,s.name store_name FROM quotations q JOIN stores s ON s.id=q.store_id ORDER BY q.created_at DESC LIMIT 200'):await rows(db,'SELECT q.*,s.name store_name FROM quotations q JOIN stores s ON s.id=q.store_id JOIN user_stores us ON us.store_id=q.store_id WHERE us.user_id=? ORDER BY q.created_at DESC LIMIT 200',u.id);return json({items})}
+  if(req.method==='GET'){
+   const columns='q.*,s.name store_name,creator.name created_by_name,approver.name discount_by_name';
+   const joins=' FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by LEFT JOIN users approver ON approver.id=q.discount_by';
+   const items=['owner','manager'].includes(u.role)
+    ?await rows(db,'SELECT '+columns+joins+' ORDER BY q.created_at DESC LIMIT 200')
+    :await rows(db,'SELECT '+columns+joins+' WHERE q.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=q.store_id) ORDER BY q.created_at DESC LIMIT 200',u.id,u.id);
+   return json({items});
+  }
   if(req.method==='POST'&&permission(u.role,'quotations','write')){const b=await body(req),store=clean(b.store_id,60),name=clean(b.customer_name,180),lines=b.lines;if(!name||!await scopedStore(db,u,store)||!validLines(lines))return fail('Store, customer and at least one item required');const arr=lines as {sku:string;qty:number}[],snap=[] as {sku:string;name:string;qty:number;unit_price_cents:number;line_total_cents:number}[];let total=0;for(const l of arr){const p=await db.prepare('SELECT sku,name,price_cents FROM products WHERE sku=? AND active=1').bind(l.sku.trim()).first<{sku:string;name:string;price_cents:number}>();if(!p) return fail(`SKU not found: ${l.sku}`);const lineTotal=p.price_cents*l.qty;if(!Number.isSafeInteger(lineTotal))return fail('Amount too large');total+=lineTotal;snap.push({sku:p.sku,name:p.name,qty:l.qty,unit_price_cents:p.price_cents,line_total_cents:lineTotal})}if(!validMoney(total))return fail('Amount too large');const id=uid(),ref=`Q-${Date.now().toString(36).toUpperCase()}-${id.slice(0,5).toUpperCase()}`;await db.prepare('INSERT INTO quotations(id,reference,store_id,customer_name,customer_phone,lines_json,total_cents,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,ref,store,name,clean(b.customer_phone,50),JSON.stringify(snap),total,u.id,now()).run();await log(db,u.id,'create','quotation',id,ref);return json({ok:true,id,reference:ref,total_cents:total},201)}
  }
  if(path==='/api/tasks'){

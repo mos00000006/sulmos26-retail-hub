@@ -1,0 +1,46 @@
+SULMOS26 V13 – SALES STAFF, OWNER DISCOUNTS & REPRINTS
+
+PATCH FILES (exact paths relative to GitHub repository root)
+  src/index.ts
+  public/app.js
+  public-pos/app.js
+  migrations/0003_quote_owner_discounts.sql
+
+NEW FEATURES
+1. Owner and manager can create sales consultant accounts in Manager Hub > Staff & Access.
+   A manager is limited to creating the sales role; only owner can manage all other roles.
+   Employees need valid usernames, passwords of at least 12 characters, and an assigned store.
+2. Every quote in the Manager Hub shows the creator's name, original amount, owner discount,
+   final amount, approving user and reprint action. Search by number, customer, store, creator.
+3. Only OWNER (server-enforced) may approve one discount per active quotation, in Rand or %.
+   A reason is mandatory. Original total is preserved and every approval is audited.
+4. In POS each consultant sees their own quotes; Refresh & print fetches the latest quotation
+   before printing, including owner's approved discount and final total.
+
+IMPORTANT INSTALL STEPS
+1. Back up your existing GitHub repository before replacement. This patch was prepared against
+   the provided V9 + POS Phase 1 source snapshot, NOT a live GitHub checkout. Compare any newer
+   src/index.ts or public/app.js changes before replacing; preserve your live customisations.
+2. Upload the four files above to the exact matching paths; do not create extra folders.
+3. Commit to main.
+4. Run 'Deploy Sulmos26 to Cloudflare' workflow FIRST (green Hub). Its migration step applies
+   migrations/0003_quote_owner_discounts.sql to EXISTING sulmos26-db. No data reset.
+5. After the green workflow is successful, run 'Deploy SULMOS26 POS (Separate Worker)' (red POS).
+6. Test: owner creates a sales consultant, consultant logs into POS, creates quote; check
+   green Hub creator name; owner applies discount; consultant presses Refresh & print.
+7. Do NOT process payments, invoices or stock releases from this quotation-only release.
+
+VERY IMPORTANT
+Do NOT run database migration twice manually; Wrangler tracks applied migrations. Do NOT
+reset the database. The red Worker shares the existing D1 database and must NOT migrate it.
+Managers can't approve discounts. Discounts are ONE APPROVAL per quote (no repeated edits).
+If you need changing/voiding an already-approved discount, use a controlled future revision
+workflow; do not manually change prices in the database.
+
+TECHNICAL NOTES
+- Additive D1 migration adds original_total_cents, discount_cents, reason, discount_by,
+  discount_at, revision. Existing quote totals and line items are retained.
+- Owners/managers see latest 200 quotes; staff see only latest 200 of their own quotes.
+- Popup printing is opened on user interaction before the API request to avoid popup blocking.
+- This code was statically checked and migration applied successfully to a local SQLite schema;
+  live Cloudflare deployment must still be tested.
