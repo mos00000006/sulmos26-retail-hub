@@ -1,0 +1,26 @@
+SULMOS26 V14 POS SALES DESK UI PATCH
+
+This patch upgrades the red POS sales desk layout only.
+It does NOT change the database, login, or pricing rules.
+It keeps the existing quotation flow and printing.
+
+Files included:
+- public-pos/index.html
+- public-pos/app.js
+- public-pos/styles.css
+
+New UI sections:
+- top summary cards
+- product category chips
+- quick actions
+- consultant session panel
+- recent / my quotations panel
+- refresh & print action
+- fuller professional workspace layout
+
+Install:
+1. Upload/replace the 3 files in GitHub.
+2. Commit to main.
+3. Run Deploy SULMOS26 POS (Separate Worker).
+4. Refresh the POS browser/app window.
+5. If the installed app still shows the old layout, close and reopen it.
