@@ -1,23 +1,19 @@
-SULMOS26 POS V15 - ALIGNMENT & SPACING
+SULMOS26 V21 GREEN HUB FULL FILE RECOVERY
 
-This patch changes only public-pos/styles.css.
-It is based on the V14 Sales Desk stylesheet (the version with stats-grid, three columns, quick actions, and My Quotations).
+This package supplies COMPLETE replacement files for the green HUB only:
+ public/app.js (V21 stock controls + standalone safeItems helper)
+ public/index.html (cache-busted app script and startup failure messaging)
 
-What it improves:
-- Equal width alignment within each grid column and consistent 16px gutters
-- Consistent card padding and heading spacing
-- Product list fills the product panel without oversized empty areas
-- Customer quotation totals align at the bottom of their panel
-- Quote statuses and reference numbers wrap safely
-- Two-column layout for mid-size laptops and one-column layout on small screens
-- More consistent button and form-field heights
+DO NOT replace any red POS file. DO NOT run database migrations for this package.
 
-TO INSTALL
-1. Extract ZIP.
-2. Open GitHub sulmos26-retail-hub / public-pos / styles.css.
-3. Upload/replace that file, or copy its contents into the GitHub editor.
-4. Commit to main.
-5. Run only the Deploy SULMOS26 POS (Separate Worker) GitHub workflow.
-6. Open the red POS website and hard-refresh (Ctrl+Shift+R).
+GitHub instructions:
+ 1. Open repository -> public -> app.js, replace its contents with this app.js.
+ 2. Open repository -> public -> index.html, replace its contents with this index.html.
+ 3. Commit both files to main.
+ 4. Run Green Hub deploy workflow.
+ 5. Open the Green Hub in a Chrome tab, hard refresh, then reopen the installed app.
 
-The green Hub, API, D1 database and POS app.js are untouched.
+IMPORTANT: This package reproduces the last local V21 stock hotfix sources.
+If your Github branch contains newer Hub edits, replacing them will overwrite those edits.
+The actual cause of the user's current loading problem is not verified remotely.
+Do not modify or delete the D1 database.

@@ -1,3 +1,31 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#071a24"/><meta name="description" content="SULMOS26 Retail Hub"/><title>SULMOS26 HUB</title><link rel="manifest" href="/manifest.webmanifest?v=12" type="application/manifest+json"/><link rel="icon" href="/favicon.ico?v=12" sizes="any"/><link rel="icon" href="/assets/favicon-48.png?v=12" type="image/png" sizes="48x48"/><link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=12"/><meta name="application-name" content="SULMOS26 HUB"/><meta name="apple-mobile-web-app-title" content="SULMOS26 HUB"/><link rel="stylesheet" href="/styles.css"/></head><body>
-<div id="app"><div class="boot"><img src="/assets/sulmos26-logo.png" alt="Sulmos26"/><p>Preparing your workspace…</p></div></div>
-<script src="/app.js" type="module"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="theme-color" content="#071a24"/>
+  <meta name="description" content="Sulmos26 — Your business. One system."/>
+  <title>Sulmos26 | Your business. One system.</title>
+  <link rel="icon" href="/assets/sulmos26-mark.png"/>
+  <link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+  <div id="app"><div class="boot"><img src="/assets/sulmos26-logo.png" alt="Sulmos26"/><p>Preparing your workspace…</p></div></div>
+  <script>
+    // Replace a stuck loading screen with actionable feedback if application startup fails.
+    window.addEventListener('error', function (event) {
+      if (event.target && event.target.tagName === 'SCRIPT') {
+        const root = document.getElementById('app');
+        if (root) root.innerHTML = '<div class="boot"><h2>Unable to load SULMOS26</h2><p>The application script could not be downloaded. Refresh this page or verify the latest Green Hub deployment.</p><button onclick="location.reload()">Retry</button></div>';
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function (event) {
+      const root = document.getElementById('app');
+      if (root && root.textContent.includes('Preparing your workspace')) {
+        root.innerHTML = '<div class="boot"><h2>Unable to start SULMOS26</h2><p>The application could not finish loading. Check your connection and deployment, then retry.</p><button onclick="location.reload()">Retry</button></div>';
+      }
+    });
+  </script>
+  <script src="/app.js?v=21-hotfix-2" type="module"></script>
+</body>
+</html>
