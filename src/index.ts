@@ -188,6 +188,88 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   else{if(!canApprove(u.role,d.created_by,u.id,d.status))return fail('Requires independent manager approval',403);await db.prepare('UPDATE stock_documents SET status=?,reviewed_by=?,reviewed_at=? WHERE id=? AND status=?').bind(kind==='approve'?'approved':'rejected',u.id,now(),id,'submitted').run()}
   await log(db,u.id,kind,'stock_document',id,'Document-control status only; no physical stock movement');return json({ok:true})
  }
+ // Phase 4: stock snapshots are entered by management. These are NOT a live stock ledger.
+ // Quotations, reservations and transfer requests never post physical stock movements.
+ if(path==='/api/sales-stock/stores' && req.method==='GET'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales access required',403);
+  return json({items:await rows(db,'SELECT id,name FROM stores WHERE active=1 ORDER BY name')});
+ }
+ if(path==='/api/sales-stock' && req.method==='GET'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales access required',403);
+  const store=clean(url.searchParams.get('store_id'),60),sku=clean(url.searchParams.get('sku'),100).toUpperCase();
+  if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
+  const sql=`SELECT ss.store_id,s.name store_name,ss.sku,p.name product_name,ss.on_hand,ss.updated_at,ss.updated_by,
+   COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=ss.store_id AND r.sku=ss.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
+   FROM stock_snapshots ss JOIN stores s ON s.id=ss.store_id JOIN products p ON p.sku=ss.sku`;
+  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 300',store);
+  return json({items:items.map(x=>{const a=x as Record<string,unknown> & {on_hand:number;reserved:number};return {...a,available:Math.max(0,a.on_hand-a.reserved)}}),basis:'manager_snapshot',live:false});
+ }
+ if(path==='/api/sales-stock/snapshot'&&req.method==='POST'){
+  if(!['owner','manager'].includes(u.role))return fail('Only management can enter stock snapshots',403);
+  const b=await body(req),store=clean(b.store_id,60),sku=clean(b.sku,100).toUpperCase(),qty=Number(b.on_hand);
+  if(!store||!await scopedStore(db,u,store)||!sku||!Number.isSafeInteger(qty)||qty<0||qty>100000000)return fail('Valid store, product SKU and non-negative quantity required');
+  if(!await db.prepare('SELECT 1 FROM products WHERE sku=? AND active=1').bind(sku).first())return fail('Product not found',404);
+  // Do not permit a snapshot below outstanding confirmed reservations.
+  const reserved=await db.prepare("SELECT COALESCE(SUM(qty),0) AS n FROM stock_requests WHERE store_id=? AND sku=? AND kind='reservation' AND status='approved'").bind(store,sku).first<{n:number}>();
+  if(qty<Number(reserved?.n||0))return fail('Cannot set stock below approved reservation quantity',409);
+  await db.prepare('INSERT INTO stock_snapshots(store_id,sku,on_hand,updated_by,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(store_id,sku) DO UPDATE SET on_hand=excluded.on_hand,updated_by=excluded.updated_by,updated_at=excluded.updated_at').bind(store,sku,qty,u.id,now()).run();
+  await log(db,u.id,'stock_snapshot','product',sku,JSON.stringify({store_id:store,on_hand:qty}));return json({ok:true});
+ }
+ if(path==='/api/sales-stock/requests'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales access required',403);
+  if(req.method==='GET'){
+   const store=clean(url.searchParams.get('store_id'),60);
+   if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
+   const items=await rows(db,`SELECT r.*,p.name product_name,s.name store_name,src.name source_store_name,creator.name created_by_name
+    FROM stock_requests r JOIN products p ON p.sku=r.sku JOIN stores s ON s.id=r.store_id
+    LEFT JOIN stores src ON src.id=r.source_store_id JOIN users creator ON creator.id=r.created_by
+    WHERE r.store_id=? ORDER BY r.created_at DESC LIMIT 100`,store);
+   return json({items});
+  }
+  if(req.method==='POST'){
+   const b=await body(req),store=clean(b.store_id,60),source=clean(b.source_store_id,60),sku=clean(b.sku,100).toUpperCase(),kind=clean(b.kind,20),qty=Number(b.qty),qid=clean(b.quotation_id,64),note=clean(b.note,500);
+   if(!store||!await scopedStore(db,u,store)||!['reservation','transfer'].includes(kind)||!Number.isSafeInteger(qty)||qty<1||qty>1000000)return fail('Invalid stock request');
+   if(!await db.prepare('SELECT 1 FROM products WHERE sku=? AND active=1').bind(sku).first())return fail('Product not found',404);
+   if(kind==='transfer'&&(!source||source===store||!await db.prepare('SELECT 1 FROM stores WHERE id=? AND active=1').bind(source).first()))return fail('Choose a different source store');
+   if(qid){const q=await db.prepare('SELECT store_id,status FROM quotations WHERE id=?').bind(qid).first<{store_id:string;status:string}>();if(!q||q.store_id!==store||q.status!=='awaiting_payment')return fail('Quotation not available for this store',404);}
+   const id=uid(),ref=`SR-${Date.now().toString(36).toUpperCase()}-${id.slice(0,6).toUpperCase()}`;
+   await db.prepare('INSERT INTO stock_requests(id,reference,kind,store_id,source_store_id,sku,qty,quotation_id,note,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(id,ref,kind,store,kind==='transfer'?source:null,sku,qty,qid||null,note,u.id,now()).run();
+   await log(db,u.id,'stock_request','stock_request',id,ref);return json({ok:true,id,reference:ref,status:'pending'},201);
+  }
+ }
+ const stockReview=path.match(/^\/api\/sales-stock\/requests\/([^/]+)\/(approve|reject|cancel|release)$/);
+ if(stockReview&&req.method==='POST'){
+  const id=stockReview[1],action=stockReview[2];
+  const r=await db.prepare('SELECT id,store_id,source_store_id,sku,qty,kind,status,created_by FROM stock_requests WHERE id=?').bind(id).first<{id:string;store_id:string;source_store_id:string|null;sku:string;qty:number;kind:string;status:string;created_by:string}>();
+  if(!r||!await scopedStore(db,u,r.store_id))return fail('Request not found',404);
+  if(action==='release'){
+   if(!['owner','manager'].includes(u.role)||r.created_by===u.id||r.kind!=='reservation')return fail('An independent manager is required to release a reservation',403);
+   const result=await db.prepare("UPDATE stock_requests SET status='released',reviewed_by=?,reviewed_at=? WHERE id=? AND status='approved' AND kind='reservation'").bind(u.id,now(),id).run();
+   if(!result.meta.changes)return fail('Only approved reservations may be released',409);
+  }else if(action==='cancel'){
+   if(r.created_by!==u.id && !['owner','manager'].includes(u.role))return fail('Only requester or management can cancel',403);
+   const result=await db.prepare("UPDATE stock_requests SET status='cancelled' WHERE id=? AND status='pending'").bind(id).run();
+   if(!result.meta.changes)return fail('Only pending requests can be cancelled',409);
+  }else{
+   if(!['owner','manager'].includes(u.role)||r.created_by===u.id)return fail('Independent manager approval required',403);
+   if(action==='approve'&&r.kind==='reservation'){
+    // Atomic conditional update: a second approver cannot approve more units than the latest snapshot.
+    const result=await db.prepare(`UPDATE stock_requests SET status='approved',reviewed_by=?,reviewed_at=?
+      WHERE id=? AND status='pending' AND kind='reservation' AND EXISTS(
+       SELECT 1 FROM stock_snapshots ss WHERE ss.store_id=stock_requests.store_id AND ss.sku=stock_requests.sku
+       AND ss.on_hand >= stock_requests.qty + (SELECT COALESCE(SUM(other.qty),0) FROM stock_requests other
+       WHERE other.store_id=stock_requests.store_id AND other.sku=stock_requests.sku AND other.kind='reservation' AND other.status='approved'))`)
+     .bind(u.id,now(),id).run();
+    if(!result.meta.changes)return fail('Cannot approve: missing snapshot, insufficient unreserved quantity, or request already processed',409);
+   }else{
+    // A transfer approval is permission to arrange a transfer, not a receipt or stock movement.
+    const result=await db.prepare('UPDATE stock_requests SET status=?,reviewed_by=?,reviewed_at=? WHERE id=? AND status=?').bind(action==='approve'?'approved':'rejected',u.id,now(),id,'pending').run();
+    if(!result.meta.changes)return fail('Request was already processed',409);
+   }
+  }
+  await log(db,u.id,'stock_request_'+action,'stock_request',id,'No stock posted');
+  return json({ok:true,status:action==='approve'?'approved':action==='reject'?'rejected':action==='release'?'released':'cancelled'});
+ }
  // Owner-only discount on an existing quote; audit and optimistic single-write guard.
  const discountMatch=path.match(/^\/api\/quotations\/([^/]+)\/discount$/);
  if(discountMatch && req.method==='POST'){
@@ -297,11 +379,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    so.reference sales_order_reference,so.status sales_order_status,so.fulfilment,so.delivery_address
    FROM quotations q JOIN stores s ON s.id=q.store_id JOIN users creator ON creator.id=q.created_by
    LEFT JOIN users approver ON approver.id=q.discount_by LEFT JOIN sales_orders so ON so.quotation_id=q.id
-   WHERE UPPER(q.reference)=?`).bind(reference).first<{
-  store_id: string;
-  status: string;
-  sales_order_reference: string | null;
-}>();
+   WHERE UPPER(q.reference)=?`).bind(reference).first<{store_id:string;status:string;sales_order_reference:string|null}>();
   if(!q||!await scopedStore(db,u,q.store_id))return fail('Quotation not found at your assigned store',404);
   return json({quotation:q,payment_recorded:false,cash_office_status:q.status==='cancelled'?'cancelled':q.sales_order_reference?'awaiting_cashier':'awaiting_customer'});
  }

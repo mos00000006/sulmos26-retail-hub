@@ -5,7 +5,7 @@ const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
   user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -82,7 +82,7 @@ function workspace(){
   <main>
     <div class="topline">
       <div>
-        <span class="tag">SALES PHASE 3 · CUSTOMERS & CASH OFFICE LOOKUP</span>
+        <span class="tag">SALES PHASE 4 · STOCK REQUESTS & CASH OFFICE LOOKUP</span>
         <h1>Sales desk</h1>
         <p class="muted">Every saved quotation is automatically available at Cash Office by its quotation number. Discounts remain owner-only.</p>
       </div>
@@ -158,6 +158,22 @@ function workspace(){
         </form>
       </section>
 
+      <section class="panel stock-phase-panel">
+        <div class="panel-head"><div><h2>Stock availability & requests</h2><p class="muted">Management-entered stock snapshots, not live stock. Quotes never reserve or deduct stock.</p></div><span class="pill ghost">Phase 4</span></div>
+        <div class="field"><label>Product</label><select id="stockSku"><option value="">Select product</option>${state.products.filter(p=>p.active).map(p=>`<option value="${esc(p.sku)}" ${p.sku===state.stockSku?'selected':''}>${esc(p.sku)} · ${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="stock-levels">${state.stockSku?(()=>{const levels=state.stockLevels.filter(x=>x.sku===state.stockSku);return levels.length?levels.map(x=>`<div class="mini-row"><span>${esc(x.store_name)}<small class="muted">Updated ${esc(String(x.updated_at||'').slice(0,10))}</small></span><b>${x.available} available <small class="muted">(${x.on_hand} snapshot − ${x.reserved} reserved)</small></b></div>`).join(''):'<div class="muted">No stock snapshot recorded. Ask the manager to verify stock.</div>'})():'<div class="muted">Select a product to view snapshots at all stores.</div>'}</div>
+        <form id="stockRequestForm" class="stock-request-form">
+          <div class="field"><label>Request type</label><select name="kind" id="stockKind"><option value="reservation" ${state.stockMode==='reservation'?'selected':''}>Reserve stock (approval required)</option><option value="transfer" ${state.stockMode==='transfer'?'selected':''}>Request transfer from another store</option></select></div>
+          <div class="field" id="sourceStoreWrap" ${state.stockMode==='transfer'?'':'hidden'}><label>Source store</label><select name="source_store_id"><option value="">Select source</option>${state.stockStores.filter(s=>s.id!==state.currentStore).map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select><small class="muted">For a store not on your list, ask management to raise the transfer.</small></div>
+          <div class="form-grid two"><div class="field"><label>Quantity</label><input name="qty" type="number" min="1" max="1000000" step="1" required value="1"></div><div class="field"><label>Quotation reference (optional)</label><select name="quotation_id"><option value="">Not linked</option>${state.quotes.filter(q=>q.store_id===state.currentStore).slice(0,70).map(q=>`<option value="${esc(q.id)}">${esc(q.reference)}</option>`).join('')}</select></div></div>
+          <div class="field"><label>Request notes</label><input name="note" maxlength="500" placeholder="Customer, requirement or transfer reason"></div>
+          <button class="btn primary" ${!state.stockSku?'disabled':''}>Submit for manager approval</button>
+        </form>
+        ${['owner','manager'].includes(state.user.role)?`<details class="stock-manager"><summary><b>Manager: update verified stock snapshot</b></summary><form id="stockSnapshotForm"><div class="field"><label>Verified physical quantity for selected product</label><input name="on_hand" type="number" min="0" max="100000000" step="1" required></div><button class="btn">Save stock snapshot</button></form></details>`:''}
+        <div class="panel-head mt14"><h3>Stock requests</h3><button id="stockRefresh" class="btn mini">Refresh</button></div>
+        <div class="stock-request-list">${state.stockRequests.length?state.stockRequests.slice(0,12).map(r=>`<div class="stock-request"><div><b>${esc(r.reference)}</b><span class="status ${r.status==='approved'?'status-approved':'status-open'}">${esc(r.status)}</span></div><div class="muted">${esc(r.kind)} · ${esc(r.sku)} × ${r.qty}${r.source_store_name?' · From '+esc(r.source_store_name):''}</div>${r.status==='approved'&&r.kind==='reservation'&&['owner','manager'].includes(state.user.role)&&r.created_by!==state.user.id?`<div class="btn-row mt10"><button class="btn mini" data-stock-action="release" data-stock-id="${esc(r.id)}">Release reservation</button></div>`:''}${r.status==='pending'?`<div class="btn-row mt10">${['owner','manager'].includes(state.user.role)&&r.created_by!==state.user.id?`<button class="btn mini" data-stock-action="approve" data-stock-id="${esc(r.id)}">Approve</button><button class="btn mini" data-stock-action="reject" data-stock-id="${esc(r.id)}">Reject</button>`:''}${r.created_by===state.user.id||['owner','manager'].includes(state.user.role)?`<button class="btn mini" data-stock-action="cancel" data-stock-id="${esc(r.id)}">Cancel</button>`:''}</div>`:''}</div>`).join(''):'<p class="muted">No requests yet.</p>'}</div>
+      </section>
+
       <aside class="sidebar-stack">
         <section class="panel compact-panel">
           <div class="panel-head"><h2>Quick actions</h2></div>
@@ -206,12 +222,18 @@ async function refresh(){
   state.orders=orders.items||[];
   if(!state.stores.some(s=>s.id===state.currentStore)) state.currentStore=state.stores[0]?.id||'';
   await loadCustomers();
+  await loadStockRequests();
 }
 async function loadCustomers(){
   if(!state.currentStore){state.customers=[];return}
   const result=await api('customers?store_id='+encodeURIComponent(state.currentStore));
   state.customers=result.items||[];
   if(!state.customers.some(c=>c.id===state.selectedCustomerId))state.selectedCustomerId='';
+}
+async function loadStockRequests(){
+  if(!state.currentStore){state.stockRequests=[];state.stockLevels=[];return}
+  const [requests,levels,stores]=await Promise.all([api('sales-stock/requests?store_id='+encodeURIComponent(state.currentStore)),api('sales-stock?store_id='+encodeURIComponent(state.currentStore)+(state.stockSku?'&sku='+encodeURIComponent(state.stockSku):'')),api('sales-stock/stores')]);
+  state.stockRequests=requests.items||[];state.stockLevels=levels.items||[];state.stockStores=stores.items||[];
 }
 function printQuote(q){
   let lines=[];
@@ -251,7 +273,7 @@ function wire(){
     return;
   }
   $('#signout').onclick=async()=>{await post('logout',{}).catch(()=>{}); state.user=null; state.basket=[]; state.notice=''; render()};
-  $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();render()}catch(err){message(err)}};
+  $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();await loadStockRequests();render()}catch(err){message(err)}};
   $('#search').oninput=e=>{state.search=e.target.value; render(); $('#search').focus(); $('#search').setSelectionRange(state.search.length,state.search.length)};
   $('#selectedCustomer').onchange=e=>{
     state.selectedCustomerId=e.target.value;state.customerHistory=[];
@@ -282,6 +304,12 @@ function wire(){
     }catch(err){message(err)}
   };
 
+  if($('#stockSku'))$('#stockSku').onchange=async e=>{state.stockSku=e.target.value;try{await loadStockRequests();render()}catch(err){message(err)}};
+  if($('#stockKind'))$('#stockKind').onchange=e=>{state.stockMode=e.target.value;render()};
+  if($('#stockRequestForm'))$('#stockRequestForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{const r=await post('sales-stock/requests',{store_id:state.currentStore,sku:state.stockSku,kind:b.kind,source_store_id:b.source_store_id,qty:Number(b.qty),quotation_id:b.quotation_id,note:b.note});await loadStockRequests();message(`Stock request ${r.reference} submitted for approval. No stock moved.`,true)}catch(err){message(err)}};
+  if($('#stockSnapshotForm'))$('#stockSnapshotForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{await post('sales-stock/snapshot',{store_id:state.currentStore,sku:state.stockSku,on_hand:Number(b.on_hand)});await loadStockRequests();message('Verified stock snapshot updated. This is not a live inventory posting.',true)}catch(err){message(err)}};
+  if($('#stockRefresh'))$('#stockRefresh').onclick=async()=>{try{await loadStockRequests();message('Stock requests and snapshots refreshed',true)}catch(err){message(err)}};
+  $$('[data-stock-action]').forEach(b=>b.onclick=async()=>{try{await post('sales-stock/requests/'+encodeURIComponent(b.dataset.stockId)+'/'+b.dataset.stockAction,{});await loadStockRequests();message('Stock request updated. No physical stock posted.',true)}catch(err){message(err)}});
   $$('.chip[data-cat]').forEach(b=>b.onclick=()=>{state.categoryFilter=b.dataset.cat||''; render()});
   $$('.quote-card [data-print], [data-print]').forEach(b=>b.onclick=()=>{const q=state.quotes.find(x=>x.id===b.dataset.print); if(q) printQuote(q)});
   $$('[data-reloadquote]').forEach(b=>b.onclick=()=>reloadQuoteAndPrint(b.dataset.reloadquote));
