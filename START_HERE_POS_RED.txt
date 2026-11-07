@@ -1,0 +1,24 @@
+SULMOS26 POS — RED BRANDING + SEPARATE WORKER
+
+RESULT AFTER DEPLOY:
+- Manager Hub stays at its existing green Worker URL.
+- NEW POS Worker gets its own address: https://sulmos26-pos.moyanamoses006.workers.dev/ (confirm in Cloudflare).
+- POS can be installed as a separate red app because its manifest is scoped to / on the separate hostname.
+- Both Workers use the same existing D1 database and user accounts.
+- Staff sign in separately to POS with their credentials created in Manager Hub.
+
+HOW TO INSTALL:
+1. Extract this ZIP; DO NOT upload the ZIP as one file.
+2. Copy the public-pos folder and .github folder to the matching locations in your GitHub project and commit to main.
+3. IMPORTANT: POS Phase 1 backend must already be installed in the repository (src/index.ts has /api/pos/products). This ZIP does NOT replace your manager backend; it checks this prerequisite.
+4. Your GitHub repository must have the CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and SULMOS26_D1_DATABASE_ID repository secrets. The D1 ID MUST point to the same database as your green Manager Hub. Do not copy the values into chat.
+5. GitHub > Actions > Deploy SULMOS26 POS (Separate Worker) > Run workflow > main.
+6. Open Cloudflare > Workers & Pages > sulmos26-pos > Visit. Verify the red logo and login screen.
+7. Use Chrome Install App from the NEW POS address, not the green manager address.
+8. If a generic S appears, check /manifest.webmanifest and /assets/icon-512.png at the new POS URL and clear cached app data before reinstalling.
+
+IMPORTANT:
+- This release is for QUOTATIONS, not payment processing.
+- This patch does not buy/configure a custom .co.za domain; the new independent workers.dev subdomain is the separate domain for now. To use pos.yourcompany.co.za, add a Cloudflare Custom Domain after setup.
+- Do not add the first-owner setup token to the POS Worker.
+- Original user-provided red SULMOS26 artwork is used for the logo and install icon.

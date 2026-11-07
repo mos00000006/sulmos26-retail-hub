@@ -1,0 +1,32 @@
+SULMOS26 POS — SEPARATE DOMAIN PATCH
+===================================
+
+RESULT
+Manager Hub: existing sulmos26-retail-hub Worker, green manager application.
+POS: NEW sulmos26-pos Worker, red / charcoal, separately installable.
+Both Workers bind the SAME existing sulmos26-db D1 database. Do NOT create another database.
+
+1. IMPORTANT PREREQUISITE: the POS Phase 1 backend endpoints must already be present in your GitHub source, especially /api/pos/products. If you have not installed the earlier POS Phase 1 patch, install its backend first, with care not to overwrite newer code.
+2. Extract this ZIP. Upload its files/folders to the same sulmos26-retail-hub GitHub repository, keeping their paths. These files are ADDITIONS, not replacements to your green manager site.
+3. Commit to main.
+4. GitHub > Actions > Deploy SULMOS26 POS (Separate Worker) > Run workflow (main).
+5. Cloudflare > Workers & Pages > sulmos26-pos > Visit, to get the exact new HTTPS URL. On the existing workers.dev account subdomain this is normally https://sulmos26-pos.moyanamoses006.workers.dev/ (verify before using).
+6. To use your own domain (optional): configure a DNS zone you control in Cloudflare and add a Custom Domain such as till.sulmos26.co.za to the sulmos26-pos Worker. Domain must be owned and configured by you; this patch cannot create or purchase the domain.
+7. Open POS link in Chrome > Install app. This is now root-scoped and uses its own RED POS manifest/icons, independent of the green HUB.
+8. Staff are created in Manager Hub > Staff & Access; sales/cashier roles sign into POS by username/password and get only their assigned stores.
+
+SECURITY / ARCHITECTURE
+- Separate Worker hostname, dedicated root PWA manifest and red logo.
+- Shared existing Cloudflare D1 database through the same DB binding/ID.
+- No CORS or cross-site cookies: each Worker handles its own same-origin API requests; sessions remain host-only and secure.
+- Staff authenticate separately on each site with the same credentials; logging into one does not automatically sign into the other.
+- Do NOT invite staff as Cloudflare dashboard members.
+- No changes to manager Worker, user records, database schema or existing login credentials.
+- POS is quotation-only Phase 1. It does not take payments or issue fiscal tax invoices.
+- Do not add /api/setup credentials/secrets to POS Worker. First-owner setup must occur in Manager Hub.
+
+TROUBLESHOOTING
+- If POS shows an API 404, verify the POS Phase 1 backend is in src/index.ts before deploying.
+- If staff cannot sign in, verify the username/password and active role in Manager Hub and confirm both Workers point at the SAME D1 database ID.
+- If POS fails permission checks, confirm store assignment and the sales/cashier role.
+- Uninstall any POS app installed from /pos/ on the green domain; then install from the new POS domain.
