@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const $=sel=>document.querySelector(sel);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const currency=v=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).format((Number(v)||0)/100);
@@ -15,14 +14,10 @@ function field(name,label,type='text',required=true,extra=''){return `<div class
 function choice(name,label,items,required=true){return `<div class="field"><label for="f_${esc(name)}">${esc(label)}</label><select id="f_${esc(name)}" name="${esc(name)}" ${required?'required':''}><option value="">Select…</option>${items.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>`}
 function textarea(name,label){return `<div class="field"><label for="f_${esc(name)}">${esc(label)}</label><textarea id="f_${esc(name)}" name="${esc(name)}"></textarea></div>`}
 function optionStores(){return state.stores.filter(x=>x.active).map(x=>({id:x.id,name:x.name}))}
-=======
-@@ -17,7 +17,17 @@ function optionStores(){return state.stores.filter(x=>x.active).map(x=>({id:x.id
->>>>>>> d4abef830c35830856fc25facf7120e623c32c03
 function empty(icon,title,subtitle,button='',click=''){return `<div class="empty"><div class="empty-symbol">${icon}</div><h3>${esc(title)}</h3><p>${esc(subtitle)}</p>${button?`<button class="btn primary" data-action="${esc(click)}">+ ${esc(button)}</button>`:''}</div>`}
 function badge(status){const map={draft:'grey',submitted:'amber',approved:'',rejected:'red',awaiting_payment:'amber',open:'amber',in_progress:'blue',done:'',active:'',locked:'grey'};return `<span class="tag ${map[status]||'grey'}">${esc(String(status).replaceAll('_',' '))}</span>`}
 function date(iso){return iso?new Date(iso).toLocaleString('en-ZA',{dateStyle:'medium',timeStyle:'short'}):'—'}
 function rowTable(head,rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`}
-<<<<<<< HEAD
 function section(title,subtitle,button='',action=''){return `<div class="toolbar"><div><h1>${esc(title)}</h1><p class="subhead" style="margin-bottom:0">${esc(subtitle)}</p></div>${button?`<button class="btn primary" data-action="${esc(action)}">+ ${esc(button)}</button>`:''}</div>`}
 function formValues(form){return Object.fromEntries(new FormData(form).entries())}
 function logo(){return '/assets/sulmos26-logo.png'}
@@ -82,19 +77,3 @@ function wire(){document.querySelectorAll('[data-view]').forEach(el=>el.onclick=
 function wireLineButtons(){document.querySelectorAll('.line-row [data-action="remove-line"]').forEach(el=>el.onclick=()=>{if(document.querySelectorAll('.line-row').length<=1)return err(Error('Keep at least one product line'));el.closest('.line-row').remove()})}
 async function init(){try{const x=await api('session');state.setup=x.setup;state.user=x.user;if(state.user){await refresh();await load('home')}else authScreen(x.setup)}catch(e){$('#app').innerHTML=`<div class="boot"><h2>Workspace connection unavailable</h2><p>Please check your D1 database migration and deployment.</p><button class="btn primary" onclick="location.reload()">Retry</button></div>`;err(e)}}
 init();
-=======
-function rowTable
-
-function safeItems(raw) {
-  try {
-    const items = JSON.parse(raw || '[]');
-    return Array.isArray(items) ? items.length : 0;
-  } catch {
-    return 0;
-  }
-}
- (head,rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`}
-function section(title,subtitle,button='',action=''){return `<div class="toolbar"><div><h1>${esc(title)}</h1><p class="subhead" style="margin-bottom:0">${esc(subtitle)}</p></div>${button?`<button class="btn primary" data-action="${esc(action)}">+ ${esc(button)}</button>`:''}</div>`}
-function formValues(form){return Object.fromEntries(new FormData(form).entries())}
-function logo(){return '/assets/sulmos26-logo.png'}
->>>>>>> d4abef830c35830856fc25facf7120e623c32c03

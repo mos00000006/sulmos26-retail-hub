@@ -1,0 +1,28 @@
+SULMOS26 GREEN HUB - EMERGENCY STARTUP RECOVERY V24
+
+This is a rollback to the earlier full Green Hub frontend before V21.
+It is NOT the simplified short recovery example.
+
+REPLACE EXACTLY ONE FILE:
+ public/app.js
+
+Do NOT edit or replace public/index.html, src/index.ts, public-pos files, or database.
+
+STEPS:
+1. Save a copy of current GitHub public/app.js for backup.
+2. Open GitHub repository > public > app.js > Edit (pencil).
+3. Copy all the text of the included public/app.js and replace ALL current text.
+4. Confirm the editor starts with: const $=sel=>document.querySelector(sel);
+   It must not have <<<<<<< HEAD or ======= or >>>>>>>.
+5. Commit to main.
+6. Check Sulmos26 Check workflow. Then manually run Deploy Sulmos26 to Cloudflare.
+7. In normal Chrome, navigate to the Green Hub and hard refresh (Ctrl+Shift+R).
+8. After verifying Chrome works, reopen the installed desktop Hub app.
+
+Important: original V21 stock-sync interface is not in this rollback.
+Database data is untouched. Do not use a simplified recovery snippet instead.
+
+Local checks: node --check passed. Source matches the earlier full Hub frontend (37,225 bytes).
+The available legacy test suite ran 20/21 successfully; the single failing test was due to
+local Node v22.16 lacking TypeScript loader support, not a frontend test failure.
+The current remote GitHub build and live Worker have not been tested by this package.
