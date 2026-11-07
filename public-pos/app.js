@@ -5,7 +5,7 @@ const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
   user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,fulfilmentOrderId:'',fulfilmentHistory:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[], report:null,reportFrom:new Date().toISOString().slice(0,7)+'-01',reportTo:todayString(),reportStore:'',reportBusy:false
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],productStockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,fulfilmentOrderId:'',fulfilmentHistory:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[], report:null,reportFrom:new Date().toISOString().slice(0,7)+'-01',reportTo:todayString(),reportStore:'',reportBusy:false
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -62,6 +62,19 @@ function filteredQuotes(){
     rows=rows.filter(x=>[x.reference,x.customer_name,x.customer_phone,x.store_name,x.created_by_name].some(v=>String(v||'').toLowerCase().includes(q)));
   }
   return rows;
+}
+// Product stock is sourced from the Hub's verified snapshots for the selected store.
+// A missing snapshot is deliberately NOT displayed as zero.
+function productStock(sku){
+  const level=state.productStockLevels.find(x=>x.sku===sku&&x.store_id===state.currentStore);
+  if(!level)return '<span class="onhand-badge unknown">Stock not recorded</span>';
+  const qty=Number(level.on_hand)||0;
+  return `<span class="onhand-badge ${qty===0?'out':qty<=5?'low':'in'}">${qty} on hand</span>`;
+}
+async function refreshOnHand(){
+  if(!state.currentStore){state.productStockLevels=[];return}
+  const result=await api('sales-stock?store_id='+encodeURIComponent(state.currentStore));
+  state.productStockLevels=result.items||[];
 }
 function currentBasketTotal(){return state.basket.reduce((s,x)=>s+x.price_cents*x.qty,0)}
 function stats(){
@@ -132,7 +145,7 @@ function workspace(){
           ${cats.map(([name,count])=>`<button class="chip ${state.categoryFilter===name?'active':''}" data-cat="${esc(name)}">${esc(name)} <span>${count}</span></button>`).join('')}
         </div>
         <div class="items">
-          ${rows.length?rows.map(p=>`<div class="item"><div><b>${esc(p.name)}</b><small>${esc(p.sku)}${p.barcode?' · '+esc(p.barcode):''}${p.category?' · '+esc(p.category):''}</small></div><div class="btn-row right-align"><span class="price">${money(p.price_cents)}</span><button class="btn mini" data-add="${esc(p.sku)}">Add +</button></div></div>`).join(''):'<div class="empty">No matching products found</div>'}
+          ${rows.length?rows.map(p=>`<div class="item"><div><b>${esc(p.name)}</b><small>${esc(p.sku)}${p.barcode?' · '+esc(p.barcode):''}${p.category?' · '+esc(p.category):''}</small><div data-product-stock="${esc(p.sku)}">${productStock(p.sku)}</div></div><div class="btn-row right-align"><span class="price">${money(p.price_cents)}</span><button class="btn mini" data-add="${esc(p.sku)}">Add +</button></div></div>`).join(''):'<div class="empty">No matching products found</div>'}
         </div>
         <div class="helper-card muted-box">
           <strong>Sales tip</strong>
@@ -243,6 +256,7 @@ async function refresh(){
   if(!state.stores.some(s=>s.id===state.currentStore)) state.currentStore=state.stores[0]?.id||'';
   await loadCustomers();
   await loadStockRequests();
+  await refreshOnHand();
 }
 async function loadCustomers(){
   if(!state.currentStore){state.customers=[];return}
@@ -300,7 +314,7 @@ function wire(){
     const rows=[['Consultant','Store','Quote count','Quote value (ZAR)','Order count','Order value (ZAR)','Count ratio (%)'],...state.report.consultants.map(r=>[r.consultant,r.store_name,r.quote_count,(r.quote_value_cents/100).toFixed(2),r.order_count,(r.order_value_cents/100).toFixed(2),r.conversion_percent])];
     const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`SULMOS26-Sales-Performance-${state.reportFrom}-to-${state.reportTo}.csv`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
   };
-  $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();await loadStockRequests();render()}catch(err){message(err)}};
+  $('#store').onchange=async e=>{state.currentStore=e.target.value;state.selectedCustomerId='';state.customerName='';state.customerPhone='';try{await loadCustomers();await loadStockRequests();await refreshOnHand();render()}catch(err){message(err)}};
   $('#search').oninput=e=>{state.search=e.target.value; render(); $('#search').focus(); $('#search').setSelectionRange(state.search.length,state.search.length)};
   $('#selectedCustomer').onchange=e=>{
     state.selectedCustomerId=e.target.value;state.customerHistory=[];
@@ -334,8 +348,8 @@ function wire(){
   if($('#stockSku'))$('#stockSku').onchange=async e=>{state.stockSku=e.target.value;try{await loadStockRequests();render()}catch(err){message(err)}};
   if($('#stockKind'))$('#stockKind').onchange=e=>{state.stockMode=e.target.value;render()};
   if($('#stockRequestForm'))$('#stockRequestForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{const r=await post('sales-stock/requests',{store_id:state.currentStore,sku:state.stockSku,kind:b.kind,source_store_id:b.source_store_id,qty:Number(b.qty),quotation_id:b.quotation_id,note:b.note});await loadStockRequests();message(`Stock request ${r.reference} submitted for approval. No stock moved.`,true)}catch(err){message(err)}};
-  if($('#stockSnapshotForm'))$('#stockSnapshotForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{await post('sales-stock/snapshot',{store_id:state.currentStore,sku:state.stockSku,on_hand:Number(b.on_hand)});await loadStockRequests();message('Verified stock snapshot updated. This is not a live inventory posting.',true)}catch(err){message(err)}};
-  if($('#stockRefresh'))$('#stockRefresh').onclick=async()=>{try{await loadStockRequests();message('Stock requests and snapshots refreshed',true)}catch(err){message(err)}};
+  if($('#stockSnapshotForm'))$('#stockSnapshotForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{await post('sales-stock/snapshot',{store_id:state.currentStore,sku:state.stockSku,on_hand:Number(b.on_hand)});await loadStockRequests();await refreshOnHand();message('Verified stock snapshot updated. This is not a live inventory posting.',true)}catch(err){message(err)}};
+  if($('#stockRefresh'))$('#stockRefresh').onclick=async()=>{try{await loadStockRequests();await refreshOnHand();message('Stock requests and snapshots refreshed',true)}catch(err){message(err)}};
   $$('[data-stock-action]').forEach(b=>b.onclick=async()=>{try{await post('sales-stock/requests/'+encodeURIComponent(b.dataset.stockId)+'/'+b.dataset.stockAction,{});await loadStockRequests();message('Stock request updated. No physical stock posted.',true)}catch(err){message(err)}});
   $$('.chip[data-cat]').forEach(b=>b.onclick=()=>{state.categoryFilter=b.dataset.cat||''; render()});
   $$('.quote-card [data-print], [data-print]').forEach(b=>b.onclick=()=>{const q=state.quotes.find(x=>x.id===b.dataset.print); if(q) printQuote(q)});
@@ -373,7 +387,7 @@ function wire(){
   $$('[data-qty]').forEach(inp=>inp.onchange=()=>{const qty=Number(inp.value); if(!Number.isInteger(qty)||qty<1||qty>1000000){message('Quantity must be a positive whole number'); return;} state.basket[Number(inp.dataset.qty)].qty=qty; render()});
   $('#clear').onclick=()=>{state.basket=[]; state.notice=''; render()};
   $('#newQuote').onclick=()=>{$('#clear').click()};
-  $('#refreshProducts').onclick=async()=>{try{const products=await api('pos/products'); state.products=products.items||[]; message('Product list refreshed',true)}catch(e){message(e)}};
+  $('#refreshProducts').onclick=async()=>{try{const products=await api('pos/products'); state.products=products.items||[]; await refreshOnHand(); message('Products and stock-on-hand refreshed',true)}catch(e){message(e)}};
   $('#refreshQuotes').onclick=async()=>{try{const quotes=await api('quotations'); state.quotes=quotes.items||[]; message('Quotation list refreshed',true)}catch(e){message(e)}};
   $('#printLast').onclick=()=>{const q=state.quotes.find(x=>x.id===state.lastSavedQuoteId); if(q) printQuote(q)};
   $('#quoteSearch').oninput=e=>{state.quoteSearch=e.target.value; render(); $('#quoteSearch').focus(); $('#quoteSearch').setSelectionRange(state.quoteSearch.length,state.quoteSearch.length)};
@@ -407,3 +421,12 @@ async function start(){
   }catch(e){state.user=null; state.notice={text:e.message,ok:false}; render();}
 }
 start();
+
+// Refresh visible stock badges when the consultant returns to the sales window.
+window.addEventListener('focus',async()=>{
+  if(!state.user||!state.currentStore)return;
+  try{
+    await refreshOnHand();
+    document.querySelectorAll('[data-product-stock]').forEach(el=>{el.innerHTML=productStock(el.dataset.productStock)});
+  }catch(_error){/* Leave the previous snapshot visible until manual refresh. */}
+});

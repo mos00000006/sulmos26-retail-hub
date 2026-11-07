@@ -149,3 +149,58 @@ header .btn-row { align-items: center; justify-content: flex-end; }
 
 /* V20 Sales Phase 6 - reporting */
 .report-panel{margin-bottom:20px}.report-filters{display:grid;grid-template-columns:180px 180px minmax(180px,1fr) auto auto;gap:10px;align-items:end}.report-filters .field{margin-bottom:0}.report-filters button{min-height:44px}.report-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.report-kpis>div{padding:14px;background:#f8f9fb;border:1px solid #e7eaf0;border-radius:11px;display:flex;flex-direction:column;gap:7px}.report-kpis span{font-size:12px;font-weight:700;color:#6e7681}.report-kpis strong{font-size:19px;color:#232830}.report-tables{display:grid;grid-template-columns:1.1fr 1fr;gap:18px}.report-tables h3{font-size:14px;margin:0 0 10px}.report-scroll{max-height:330px;overflow:auto;border:1px solid #e7eaf0;border-radius:10px}.report-table{border-collapse:collapse;width:100%;font-size:12px}.report-table th{position:sticky;top:0;background:#f3f4f6;text-align:left;color:#5d6572;font-weight:800;white-space:nowrap}.report-table td,.report-table th{padding:10px;border-bottom:1px solid #ecedf0}.report-table td{vertical-align:top}.report-placeholder{padding:15px;background:#fafbfc;border-radius:10px}@media(max-width:1100px){.report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.report-tables{grid-template-columns:1fr}}@media(max-width:640px){.report-filters,.report-kpis{grid-template-columns:1fr 1fr}.report-filters .field:nth-child(3){grid-column:1/-1}.report-filters button{min-width:0}}
+
+/* V21 — tightly aligned POS Sales Desk. No fixed card heights or stretched empty columns. */
+:root {--ui-gap:12px;--ui-radius:12px}
+main{max-width:1680px;padding:16px 18px 22px}
+.topline{margin-bottom:12px;gap:12px}
+.stats-grid{gap:12px;margin-bottom:12px}
+.stat-card{min-height:100px;padding:13px 15px;gap:5px}
+.stat-label{margin:0}.stat-value{font-size:26px}.stat-value.small{font-size:21px}.stat-note{margin-top:0}
+.workspace-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:12px;align-items:start}
+.workspace-grid>.products-panel{grid-column:1;grid-row:1}
+.workspace-grid>.quote-panel{grid-column:2;grid-row:1}
+.workspace-grid>.stock-phase-panel{grid-column:1 / -1;grid-row:2}
+.workspace-grid>.sidebar-stack{grid-column:1 / -1;grid-row:3;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+.workspace-grid>.sidebar-stack>.panel{height:auto}
+.panel{padding:15px;border-radius:12px}
+.compact-panel{padding:15px}
+.panel-head{min-height:0;margin-bottom:11px;gap:8px}
+.panel-head h2{font-size:16px;margin:0 0 3px}
+.panel-head p{font-size:12px}
+.products-panel,.quote-panel{height:auto;display:block}
+.quote-panel form{display:block}
+.quote-summary{margin-top:14px}
+.items{min-height:0;max-height:350px;overflow:auto}
+.item{min-height:0;padding:9px 10px}
+.item b{font-size:13px}
+.item small{font-size:11px}
+.item .right-align{gap:8px}
+.category-row{min-height:0;gap:6px;margin-bottom:10px}
+.chip{min-height:0;padding:6px 10px}
+.onhand-badge{display:inline-block;margin-top:6px;padding:4px 8px;font-size:11px;font-weight:800;border-radius:7px;line-height:1.25}
+.onhand-badge.in{background:#e9f7ef;color:#19673c}
+.onhand-badge.low{background:#fff4df;color:#8e5e06}
+.onhand-badge.out{background:#fbe9eb;color:#a02032}
+.onhand-badge.unknown{background:#edf0f4;color:#5e6774}
+.report-panel{margin-bottom:12px}
+.report-kpis{margin:10px 0}
+.report-filters{gap:8px}
+.quick-actions{gap:8px}
+.mini-row{padding:6px 0}
+.quotes-list,.stock-request-list{max-height:370px;min-height:0}
+.stock-levels{max-height:200px}
+@media(max-width:1100px){
+  .workspace-grid{grid-template-columns:1fr 1fr}
+  .workspace-grid>.sidebar-stack{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:780px){
+  main{padding:10px}
+  .workspace-grid{grid-template-columns:minmax(0,1fr)}
+  .workspace-grid>.products-panel,.workspace-grid>.quote-panel,.workspace-grid>.stock-phase-panel,.workspace-grid>.sidebar-stack{grid-column:1;grid-row:auto}
+  .workspace-grid>.sidebar-stack{grid-template-columns:minmax(0,1fr)}
+  .report-filters{grid-template-columns:1fr 1fr}
+  .report-kpis{grid-template-columns:1fr 1fr}
+  .form-grid.two{grid-template-columns:1fr}
+  .items{max-height:320px}
+}

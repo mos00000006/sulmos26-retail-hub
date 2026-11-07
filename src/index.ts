@@ -201,7 +201,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const sql=`SELECT ss.store_id,s.name store_name,ss.sku,p.name product_name,ss.on_hand,ss.updated_at,ss.updated_by,
    COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=ss.store_id AND r.sku=ss.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
    FROM stock_snapshots ss JOIN stores s ON s.id=ss.store_id JOIN products p ON p.sku=ss.sku`;
-  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 300',store);
+  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 5000',store);
   return json({items:items.map(x=>{const a=x as Record<string,unknown> & {on_hand:number;reserved:number};return {...a,available:Math.max(0,a.on_hand-a.reserved)}}),basis:'manager_snapshot',live:false});
  }
  if(path==='/api/sales-stock/snapshot'&&req.method==='POST'){
