@@ -1,0 +1,20 @@
+{
+  "name": "sulmos26-retail-hub",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "check": "npm run build && npm test",
+    "test": "node --test tests/*.test.mjs",
+    "db:local": "wrangler d1 migrations apply sulmos26-db --local",
+    "db:remote": "wrangler d1 migrations apply sulmos26-db --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.45.0"
+  }
+}

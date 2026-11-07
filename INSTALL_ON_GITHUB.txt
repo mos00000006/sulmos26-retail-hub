@@ -1,0 +1,31 @@
+SULMOS26 — SEPARATE RETAIL HUB PROJECT
+====================================
+
+IMPORTANT: THIS IS NOT A PATCH FOR MALIKSGROUPZA.
+Do not paste these files into your existing PowerBuild Hub.
+
+1. Create a NEW repository on GitHub called: sulmos26-retail-hub
+2. Unzip Sulmos26_Retail_Hub_GitHub.zip.
+3. Upload all the extracted project files/folders to the ROOT of that new repository.
+4. Install Node.js 22+ if not already installed.
+5. In the NEW project folder, run: npm install
+6. Create a fresh Cloudflare D1 database:
+      npx wrangler login
+      npx wrangler d1 create sulmos26-db
+7. Edit wrangler.jsonc and replace the example database ID with the NEW D1 ID.
+   Never use the Maliks/PowerBuild database ID.
+8. Apply the fresh schema to your LOCAL test database:
+      npm run db:local
+9. Launch locally:
+      npm run dev
+10. Open the local address and create your owner account and company.
+11. Check the project:
+      npm run check
+12. To publish for an actual client: secure the first-owner setup, then run:
+      npm run db:remote
+      npm run deploy
+
+Each customer must have their OWN separate D1 database + deployment.
+This release is a V1 operational foundation, not a full financial POS.
+Cash/card payments, paid invoicing and live stock posting are not enabled.
+See README.md for the complete scope, permissions and safety notes.
