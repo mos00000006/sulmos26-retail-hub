@@ -1,19 +1,16 @@
-SULMOS26 V21 GREEN HUB FULL FILE RECOVERY
+SULMOS26 GREEN HUB STARTUP REPAIR
 
-This package supplies COMPLETE replacement files for the green HUB only:
- public/app.js (V21 stock controls + standalone safeItems helper)
- public/index.html (cache-busted app script and startup failure messaging)
+CAUSE VERIFIED: GitHub's public/app.js contains unresolved Git conflict markers such as <<<<<<< HEAD, =======, >>>>>>> and @@ patch markers. Those must not be deployed.
 
-DO NOT replace any red POS file. DO NOT run database migrations for this package.
+REPLACE ONLY: public/app.js
 
-GitHub instructions:
- 1. Open repository -> public -> app.js, replace its contents with this app.js.
- 2. Open repository -> public -> index.html, replace its contents with this index.html.
- 3. Commit both files to main.
- 4. Run Green Hub deploy workflow.
- 5. Open the Green Hub in a Chrome tab, hard refresh, then reopen the installed app.
+1. Open https://github.com/mos00000006/sulmos26-retail-hub/edit/main/public/app.js
+2. Remove all existing content and paste the full content of app.js included here, or upload this file to public/app.js.
+3. Commit to main.
+4. Verify Sulmos26 Check succeeds.
+5. Run Deploy Sulmos26 to Cloudflare (green manager hub).
+6. Test in normal Chrome browser with hard refresh before installed app.
 
-IMPORTANT: This package reproduces the last local V21 stock hotfix sources.
-If your Github branch contains newer Hub edits, replacing them will overwrite those edits.
-The actual cause of the user's current loading problem is not verified remotely.
-Do not modify or delete the D1 database.
+DO NOT modify index.html, the D1 database, or public-pos files.
+
+This file is a rollback recovery version, before V21 stock-entry UI. When the Hub starts, we can reintroduce the stock sync safely.
