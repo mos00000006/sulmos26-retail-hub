@@ -304,7 +304,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
  if(path==='/api/sales-orders'){
   if(req.method==='GET'){
    if(!['owner','manager','sales'].includes(u.role))return fail('Sales order access required',403);
-   const sql='SELECT so.id,so.reference,so.quotation_id,so.quotation_reference,so.store_id,so.customer_name,so.customer_phone,so.total_cents,so.fulfilment,so.status,so.created_by,so.created_at,s.name store_name,creator.name created_by_name FROM sales_orders so JOIN stores s ON s.id=so.store_id JOIN users creator ON creator.id=so.created_by';
+   const sql='SELECT so.id,so.reference,so.quotation_id,so.quotation_reference,so.store_id,so.customer_name,so.customer_phone,so.total_cents,so.fulfilment,so.delivery_address,so.sales_note,so.requested_date,so.contact_name,so.contact_phone,so.fulfilment_updated_at,so.status,so.created_by,so.created_at,s.name store_name,creator.name created_by_name FROM sales_orders so JOIN stores s ON s.id=so.store_id JOIN users creator ON creator.id=so.created_by';
    const items=['owner','manager'].includes(u.role)
     ?await rows(db,sql+' ORDER BY so.created_at DESC LIMIT 200')
     :await rows(db,sql+' WHERE so.created_by=? AND EXISTS(SELECT 1 FROM user_stores us WHERE us.user_id=? AND us.store_id=so.store_id) ORDER BY so.created_at DESC LIMIT 200',u.id,u.id);
@@ -339,6 +339,34 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   }
  }
 
+ // Phase 5: sales-side collection/delivery coordination only; NEVER payment or dispatch release.
+ const fulfilmentMatch=path.match(/^\/api\/sales-orders\/([^/]+)\/fulfilment$/);
+ if(fulfilmentMatch){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales coordination access required',403);
+  const orderId=fulfilmentMatch[1];
+  const order=await db.prepare('SELECT id,store_id,created_by,fulfilment,status FROM sales_orders WHERE id=?').bind(orderId).first<{id:string;store_id:string;created_by:string;fulfilment:string;status:string}>();
+  if(!order||!await scopedStore(db,u,order.store_id)||(u.role==='sales'&&order.created_by!==u.id))return fail('Sales order not found',404);
+  if(req.method==='GET'){
+   const details=await db.prepare('SELECT id,reference,quotation_reference,fulfilment,delivery_address,sales_note,requested_date,contact_name,contact_phone,status,fulfilment_updated_at FROM sales_orders WHERE id=?').bind(orderId).first();
+   const history=await rows(db,'SELECT e.event_type,e.note,e.created_at,actor.name actor_name FROM sales_fulfilment_events e JOIN users actor ON actor.id=e.actor_id WHERE e.sales_order_id=? ORDER BY e.created_at DESC LIMIT 40',orderId);
+   return json({order:details,history});
+  }
+  if(req.method==='POST'){
+   if(order.status!=='awaiting_cashier')return fail('Order is no longer awaiting Cash Office. Contact management to amend fulfilment.',409);
+   const b=await body(req),fulfilment=clean(b.fulfilment,24),deliveryAddress=clean(b.delivery_address,300),note=clean(b.sales_note,500),requestedDate=clean(b.requested_date,10),contactName=clean(b.contact_name,120),contactPhone=clean(b.contact_phone,50);
+   if(!['collection','delivery'].includes(fulfilment))return fail('Select collection or delivery');
+   if(fulfilment==='delivery'&&deliveryAddress.length<5)return fail('A delivery address is required');
+   if(requestedDate&&!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate))return fail('Use a valid YYYY-MM-DD requested date');
+   if(requestedDate){const date=new Date(requestedDate+'T00:00:00Z');if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==requestedDate)return fail('Invalid requested date');}
+   const stamp=now();
+   const updated=await db.prepare("UPDATE sales_orders SET fulfilment=?,delivery_address=?,sales_note=?,requested_date=?,contact_name=?,contact_phone=?,fulfilment_updated_at=? WHERE id=? AND status='awaiting_cashier'")
+    .bind(fulfilment,fulfilment==='delivery'?deliveryAddress:'',note,requestedDate||null,contactName,contactPhone,stamp,orderId).run();
+   if(updated.meta.changes!==1)return fail('Order changed. Refresh and try again.',409);
+   await db.prepare('INSERT INTO sales_fulfilment_events(id,sales_order_id,actor_id,event_type,note,created_at) VALUES(?,?,?,?,?,?)').bind(uid(),orderId,u.id,'instructions_updated',JSON.stringify({fulfilment,requested_date:requestedDate,note}),stamp).run();
+   await log(db,u.id,'update_fulfilment','sales_order',orderId,`${fulfilment} ${requestedDate}`);
+   return json({ok:true,status:'awaiting_cashier',payment_recorded:false,stock_deducted:false});
+  }
+ }
  // Phase 3: store-scoped customer directory; no payment or credit access.
  if(path==='/api/customers'){
   if(!['owner','manager','sales'].includes(u.role))return fail('Customer access required',403);

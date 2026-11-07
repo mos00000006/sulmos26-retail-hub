@@ -5,7 +5,7 @@ const money=c=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).
 const todayString=()=>new Date().toISOString().slice(0,10);
 const state={
   user:null,stores:[],products:[],quotes:[],orders:[],basket:[],currentStore:'',search:'',notice:'',busy:false,
-  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
+  quoteSearch:'',categoryFilter:'',lastSavedQuoteId:'',lastSavedReference:'',handoffId:'',handoffFulfilment:'collection',handoffAddress:'',handoffNote:'', customers:[],stockLevels:[],stockRequests:[],stockStores:[],stockSku:'',stockMode:'reservation',stockSource:'',stockQty:1,fulfilmentOrderId:'',fulfilmentHistory:[],selectedCustomerId:'',customerName:'',customerPhone:'',showCustomerForm:false,customerSearch:'',customerHistory:[]
 };
 async function api(path,options={}){
   const response=await fetch('/api/'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -82,7 +82,7 @@ function workspace(){
   <main>
     <div class="topline">
       <div>
-        <span class="tag">SALES PHASE 4 · STOCK REQUESTS & CASH OFFICE LOOKUP</span>
+        <span class="tag">SALES PHASE 5 · COLLECTIONS & DELIVERY COORDINATION</span>
         <h1>Sales desk</h1>
         <p class="muted">Every saved quotation is automatically available at Cash Office by its quotation number. Discounts remain owner-only.</p>
       </div>
@@ -202,6 +202,12 @@ function workspace(){
           ${sentOrders.length?sentOrders.map(o=>`<div class="mini-order"><b>${esc(o.reference)}</b><span>${esc(o.customer_name)} · ${money(o.total_cents)}</span><small>Awaiting Cashier · ${esc(o.fulfilment)}</small></div>`).join(''):'<div class="muted">No orders sent yet.</div>'}
         </section>
 
+        <section class="panel compact-panel fulfilment-panel">
+          <div class="panel-head"><div><h2>Collections & delivery follow-up</h2><p class="muted">Sales records instructions only. Cash Office must process payment before dispatch release.</p></div><span class="pill ghost">Phase 5</span></div>
+          ${state.orders.filter(o=>o.store_id===state.currentStore).length?state.orders.filter(o=>o.store_id===state.currentStore).slice(0,15).map(o=>`<div class="fulfilment-order"><div class="quote-top"><strong>${esc(o.reference)}</strong><span class="status status-cashier">${esc(o.status==='awaiting_cashier'?'Awaiting Cash Office':o.status)}</span></div><div class="muted">Quote: ${esc(o.quotation_reference)} · ${esc(o.customer_name)} · ${money(o.total_cents)}</div><div class="muted">${esc(o.fulfilment)}${o.requested_date?' · Requested '+esc(o.requested_date):''}</div><div class="btn-row mt10"><button class="btn mini" data-fulfilment="${esc(o.id)}">Instructions & follow-up</button></div></div>`).join(''):'<p class="muted">Confirm customer collection or delivery details from their quotation to start tracking.</p>'}
+          ${state.fulfilmentOrderId?(()=>{const o=state.orders.find(x=>x.id===state.fulfilmentOrderId);return o?`<form id="fulfilmentForm" class="fulfilment-form"><h3>Update ${esc(o.reference)}</h3><div class="field"><label>Method</label><select name="fulfilment" id="editFulfilment"><option value="collection" ${o.fulfilment==='collection'?'selected':''}>Customer collection</option><option value="delivery" ${o.fulfilment==='delivery'?'selected':''}>Delivery</option></select></div><div class="field"><label>Delivery address (if applicable)</label><input name="delivery_address" maxlength="300" value="${esc(o.delivery_address||'')}"></div><div class="field"><label>Requested date (not a confirmed booking)</label><input name="requested_date" type="date" value="${esc(o.requested_date||'')}"></div><div class="field"><label>Contact person</label><input name="contact_name" maxlength="120" value="${esc(o.contact_name||o.customer_name||'')}"></div><div class="field"><label>Contact number</label><input name="contact_phone" maxlength="50" value="${esc(o.contact_phone||o.customer_phone||'')}"></div><div class="field"><label>Collection / delivery notes</label><textarea name="sales_note" maxlength="500" rows="3">${esc(o.sales_note||'')}</textarea></div><div class="btn-row"><button type="submit" class="btn primary">Save instructions</button><button type="button" id="cancelFulfilment" class="btn mini">Close</button></div><p class="muted mt12">This does not confirm payment, a delivery slot, stock allocation or dispatch.</p><h3 class="section-mini">Instruction history</h3>${state.fulfilmentHistory.length?state.fulfilmentHistory.map(e=>`<p class="muted">${esc(e.created_at.slice(0,16))} · ${esc(e.actor_name)} · Instructions updated</p>`).join(''):'<p class="muted">No updates yet.</p>'}</form>`:''})():''}
+        </section>
+
         <section class="panel compact-panel">
           <div class="panel-head"><div><h2>My quotations</h2><p class="muted">Search, reprint, and send orders to Cash Office.</p></div></div>
           <div class="search-row slim"><input id="quoteSearch" placeholder="Search quote number or customer" value="${esc(state.quoteSearch)}"></div>
@@ -313,6 +319,17 @@ function wire(){
   $$('.chip[data-cat]').forEach(b=>b.onclick=()=>{state.categoryFilter=b.dataset.cat||''; render()});
   $$('.quote-card [data-print], [data-print]').forEach(b=>b.onclick=()=>{const q=state.quotes.find(x=>x.id===b.dataset.print); if(q) printQuote(q)});
   $$('[data-reloadquote]').forEach(b=>b.onclick=()=>reloadQuoteAndPrint(b.dataset.reloadquote));
+  $$('[data-fulfilment]').forEach(b=>b.onclick=async()=>{
+    try{const r=await api('sales-orders/'+encodeURIComponent(b.dataset.fulfilment)+'/fulfilment');state.fulfilmentOrderId=b.dataset.fulfilment;state.fulfilmentHistory=r.history||[];render();document.querySelector('.fulfilment-panel')?.scrollIntoView({block:'center',behavior:'smooth'});}catch(err){message(err)}
+  });
+  if($('#fulfilmentForm')){
+    $('#cancelFulfilment').onclick=()=>{state.fulfilmentOrderId='';state.fulfilmentHistory=[];render()};
+    $('#fulfilmentForm').onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target));try{
+      await post('sales-orders/'+encodeURIComponent(state.fulfilmentOrderId)+'/fulfilment',data);
+      await refresh();const r=await api('sales-orders/'+encodeURIComponent(state.fulfilmentOrderId)+'/fulfilment');state.fulfilmentHistory=r.history||[];
+      message('Instructions updated. Payment and dispatch are still pending Cash Office.',true);
+    }catch(err){message(err)}};
+  }
   $$('[data-handoff]').forEach(b=>b.onclick=()=>{state.handoffId=b.dataset.handoff;state.handoffFulfilment='collection';state.handoffAddress='';state.handoffNote='';render();document.querySelector('.cashier-panel')?.scrollIntoView({behavior:'smooth',block:'center'})});
   if($('#handoffForm')){
     $('#cancelHandoff').onclick=()=>{state.handoffId='';render()};
