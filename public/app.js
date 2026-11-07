@@ -1,100 +1,888 @@
-<<<<<<< HEAD
-const $=sel=>document.querySelector(sel);
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const currency=v=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).format((Number(v)||0)/100);
-const icons={home:'⌂',stores:'▦',products:'◈',quotes:'▤',cash:'◉',stock:'▣',tasks:'☑',team:'♙',audit:'◷',reports:'▥',settings:'⚙',dispatch:'⇄'};
-const labels={home:'Overview',stores:'Stores & locations',products:'Product catalogue',quotes:'Sales & quotations',cash:'Cash office',stock:'Stock operations',dispatch:'Dispatch',tasks:'Tasks & checklists',team:'Staff & access',reports:'Reports',audit:'Activity & audit',settings:'Business settings'};
-const state={user:null,view:'home',setup:null,business:null,stores:[],products:[],users:[],stock:[],quotes:[],tasks:[],audit:[],overview:{},modal:null,filter:'',menu:false};
-const permitted=(view)=>{const role=state.user?.role;if(!role)return false;if(['home','stores','products','tasks','settings'].includes(view))return true;if(view==='team'||view==='audit'||view==='reports')return ['owner','manager'].includes(role);if(view==='stock')return ['owner','manager','stock','viewer'].includes(role);if(view==='quotes'||view==='cash')return ['owner','manager','sales','cashier','viewer'].includes(role);return ['owner','manager','dispatch','cashier'].includes(role)};
-const write=(r)=>{const role=state.user?.role;if(role==='owner')return true;if(role==='manager')return !['team','settings'].includes(r);return {quotes:role==='sales',stock:role==='stock',tasks:role!=='viewer'}[r]||false};
-async function api(path,options={}){let r;try{r=await fetch('/api/'+path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})},credentials:'same-origin'})}catch(e){throw Error('Cannot reach the Retail Hub server. Check your connection or Cloudflare deployment.')}const x=await r.json().catch(()=>({error:'Server returned an unreadable response'}));if(!r.ok)throw Error((x.error||'Request failed')+' (HTTP '+r.status+')');return x}
-async function post(path,payload){return api(path,{method:'POST',body:JSON.stringify(payload)})}
-function notify(message,error=false){const t=document.createElement('div');t.className='toast'+(error?' error':'');t.textContent=message;document.body.append(t);setTimeout(()=>t.remove(),4100)}
-function err(e){notify(e instanceof Error?e.message:String(e),true)}
-function field(name,label,type='text',required=true,extra=''){return `<div class="field"><label for="f_${esc(name)}">${esc(label)}</label><input id="f_${esc(name)}" name="${esc(name)}" type="${esc(type)}" ${required?'required':''} ${extra}/></div>`}
-function choice(name,label,items,required=true){return `<div class="field"><label for="f_${esc(name)}">${esc(label)}</label><select id="f_${esc(name)}" name="${esc(name)}" ${required?'required':''}><option value="">Select…</option>${items.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>`}
-function textarea(name,label){return `<div class="field"><label for="f_${esc(name)}">${esc(label)}</label><textarea id="f_${esc(name)}" name="${esc(name)}"></textarea></div>`}
-function optionStores(){return state.stores.filter(x=>x.active).map(x=>({id:x.id,name:x.name}))}
-=======
-@@ -17,7 +17,17 @@ function optionStores(){return state.stores.filter(x=>x.active).map(x=>({id:x.id
->>>>>>> d4abef830c35830856fc25facf7120e623c32c03
-function empty(icon,title,subtitle,button='',click=''){return `<div class="empty"><div class="empty-symbol">${icon}</div><h3>${esc(title)}</h3><p>${esc(subtitle)}</p>${button?`<button class="btn primary" data-action="${esc(click)}">+ ${esc(button)}</button>`:''}</div>`}
-function badge(status){const map={draft:'grey',submitted:'amber',approved:'',rejected:'red',awaiting_payment:'amber',open:'amber',in_progress:'blue',done:'',active:'',locked:'grey'};return `<span class="tag ${map[status]||'grey'}">${esc(String(status).replaceAll('_',' '))}</span>`}
-function date(iso){return iso?new Date(iso).toLocaleString('en-ZA',{dateStyle:'medium',timeStyle:'short'}):'—'}
-function rowTable(head,rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`}
-<<<<<<< HEAD
-function section(title,subtitle,button='',action=''){return `<div class="toolbar"><div><h1>${esc(title)}</h1><p class="subhead" style="margin-bottom:0">${esc(subtitle)}</p></div>${button?`<button class="btn primary" data-action="${esc(action)}">+ ${esc(button)}</button>`:''}</div>`}
-function formValues(form){return Object.fromEntries(new FormData(form).entries())}
-function logo(){return '/assets/sulmos26-logo.png'}
-function authScreen(initial){const setup=initial;$('#app').innerHTML=`<div class="setup-wrap"><div class="setup-left"><div><div class="setup-brand"><img src="${logo()}" alt="Sulmos26"/></div><h1>Your business.<br><em>One system.</em></h1><p>One beautifully organised workspace for your team, products, quotations, stock documents and daily operations.</p></div><div class="setup-foot">SULMOS26 / INDEPENDENT RETAIL HUB<br>Empty by design. Built around your business.</div></div><div class="setup-right"><div class="setup-card"><div class="eyebrow">${setup?'WELCOME TO SULMOS26':'SECURE WORKSPACE ACCESS'}</div><h2>${setup?'Create your business workspace':'Welcome back'}</h2><p>${setup?'Set up your business. We won’t insert any demo products, shops or staff.':'Enter your username and password to continue.'}</p><form id="auth-form">${setup?field('business','Business name')+field('name','Your full name'):''}${setup?field('setup_key','Private installation key','password',true,'minlength="32" autocomplete="off"'):''}${setup?field('email','Recovery email for owner','email'):''}${field('username','Username','text',true,'autocomplete="username"')}${field('password',setup?'Create password (12+ characters)':'Password','password',true,`minlength="${setup?12:1}"`)}<button class="btn primary" style="width:100%;margin-top:7px;min-height:46px" type="submit">${setup?'Create empty workspace →':'Sign in →'}</button></form>${setup?'<div class="notice info" style="margin-top:24px">Owner setup is available only on a fresh installation. Once created, all future users must sign in.</div>':''}<div class="setup-foot">Protected sessions · Independent customer deployment · No PowerBuild data</div></div></div></div>`;$('#auth-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{const values=formValues(e.target);const setupKey=String(values.setup_key||'');delete values.setup_key;
-if(setup){const check=await api('setup-check');if(!check.ready)throw Error(check.code||'Database is not ready');if(!check.setupRequired){state.setup=false;authScreen(false);throw Error('An owner already exists. Please sign in.')}}const data=setup?await api('setup',{method:'POST',headers:{'x-sulmos26-setup-token':setupKey},body:JSON.stringify(values)}):await post('login',values);state.user=data.user;await refresh();draw()}catch(ex){err(ex)}finally{button.disabled=false}}}
-async function refresh(){const routes=[['business','business'],['stores','stores'],['products','products'],['overview','overview']];await Promise.all(routes.map(async([key,path])=>{try{const x=await api(path);state[key]=x.items??x.business??x}catch(e){if(e.message==='Sign in required')throw e}}))}
-async function load(view){state.view=view;state.filter='';if(view==='home'){state.overview=await api('overview')}else if(view==='stores')state.stores=(await api('stores')).items;else if(view==='products')state.products=(await api('products')).items;else if(view==='quotes'||view==='cash')state.quotes=(await api('quotations')).items;else if(view==='stock')state.stock=(await api('stock-documents')).items;else if(view==='tasks')state.tasks=(await api('tasks')).items;else if(view==='team'){const x=await api('users');state.users=x.items;state.assignments=x.assignments}else if(view==='audit')state.audit=(await api('audit')).items;else if(view==='reports'){state.overview=await api('overview')};draw()}
-function sidebar(){let nav=['home','stores','products','quotes','cash','stock','dispatch','tasks','team','reports','audit','settings'];return `<div class="sidebar ${state.menu?'open':''}"><div class="brand-pane"><img src="${logo()}" alt="Sulmos26 logo"/><div class="brand-caption">YOUR BUSINESS. ONE SYSTEM.</div></div><div class="nav-label">WORKSPACE</div>${nav.filter(permitted).map((p,i)=>`<button class="nav ${state.view===p?'active':''}" data-view="${p}"><span style="font-size:20px;width:21px;text-align:center;color:${state.view===p?'#30d9cf':'#6ca0aa'}">${icons[p]}</span><span>${labels[p]}</span><span class="nav-arrow">›</span></button>`).join('')}<div class="side-bottom"><div class="mini-user"><span class="avatar">${esc(state.user.name[0]?.toUpperCase()||'U')}</span><div><strong>${esc(state.user.name)}</strong><small>${esc(state.user.role)} · ${esc(state.user.username||state.user.email)}</small></div></div><button data-action="logout">↪ &nbsp; Sign out</button></div></div>`}
-function base(content){$('#app').innerHTML=`<div class="shell">${sidebar()}<div class="main"><header class="topbar"><div class="crumb"><button class="btn small mobile-menu" data-action="menu">☰</button><b>SULMOS26</b><span>/</span><span>${esc(labels[state.view]||'Workspace')}</span></div><div class="top-actions"><span class="pill"><span class="dot"></span> INDEPENDENT WORKSPACE</span><span class="top-avatar">${esc(state.user.name.slice(0,2).toUpperCase())}</span></div></header><main class="workspace">${content}<div class="footer"><span>© Sulmos26 · Your business. One system.</span><span>Customer-controlled data · V1 foundation · Secure access</span></div></main></div></div>${state.modal||''}`}
-function home(){const o=state.overview;return `<div class="eyebrow">WELCOME TO YOUR WORKSPACE</div><div class="hero"><div><div class="eyebrow" style="color:#3cdbce">SULMOS26 / RETAIL MANAGEMENT</div><h1>Everything your business needs.<br><em>One connected space.</em></h1><p>${esc(state.business?.trading_name||state.business?.name||'Your business')} · Your data. Your team. Your way. Start by setting up your first location and products.</p></div><div class="hero-right"><span class="hero-figure">26<small> / ONE SYSTEM</small></span><button class="btn primary" data-view="stores">Set up locations →</button></div></div><div class="stats">${stat('Locations',o.stores,'▦','Your stores')}${stat('Catalogue items',o.products,'◈','Active products')}${stat('Quotations',o.quotes,'▤','Awaiting payment')}${stat('Stock documents',o.documents,'▣','Control register')}</div><div class="grid-panels"><div class="panel"><div class="panel-head"><h2>Launch your operations</h2><span class="tag">QUICK START</span></div><div class="quick-grid">${quick('stores','▦','Add your first store','Set your own locations')}${quick('products','◈','Create a product','SKU, pricing and category')}${quick('team','♙','Invite your team','Assign staff and permissions')}${quick('stock','▣','Open stock control','GRVs, counts and transfers')}</div></div><div class="panel"><div class="panel-head"><h2>Getting started</h2><small>Business onboarding</small></div><div class="list">${checkline('Create your owner account',true)}${checkline('Complete business profile',!!state.business?.phone)}${checkline('Add your first location',Number(o.stores)>0)}${checkline('Load your own products',Number(o.products)>0)}${checkline('Create operational documents',Number(o.documents)>0)}</div><div class="notice info" style="margin-top:19px">No demonstration records are installed. Your business decides what to add.</div></div></div>`}
-function stat(title,num,symbol,note){return `<div class="stat"><div class="stat-top"><div class="title">${esc(title)}</div><div class="symbol">${symbol}</div></div><div class="number">${Number(num)||0}</div><div class="caption">${esc(note)}</div></div>`}
-function quick(view,symbol,title,subtitle){return `<button class="quick-item" data-view="${view}"><div class="symbol">${symbol}</div><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></button>`}
-function checkline(text,done){return `<div class="list-item"><span style="font-size:12px">${done?'🟢':'○'} &nbsp; ${esc(text)}</span><span class="tag ${done?'':'grey'}">${done?'Complete':'To do'}</span></div>`}
-function stores(){return section('Your stores & locations','Every client starts with an empty store list. Create only your own locations.',write('stores')?'Add store':'','new-store')+`<div class="panel">${state.stores.length?rowTable(['Store','Code','Address','Status'],state.stores.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.code)}</td><td>${esc(s.address||'—')}</td><td>${badge(s.active?'active':'inactive')}</td></tr>`)):empty('▦','No stores created','Create your first location, outlet or warehouse. Nothing from another business is preloaded.',write('stores')?'Add your first store':'','new-store')}</div>`}
-function products(){const items=state.products.filter(x=>(`${x.name} ${x.sku} ${x.category}`).toLowerCase().includes(state.filter.toLowerCase()));return section('Product catalogue','Build your own catalogue from scratch. No preloaded suppliers, SKUs or product photos.',write('products')?'Add product':'','new-product')+`<div class="panel"><div class="toolbar"><input data-search="products" placeholder="Search SKU, name or category…" value="${esc(state.filter)}"/><span class="tag grey">${state.products.length} products</span></div>${state.products.length?rowTable(['SKU','Description','Category','Selling price','Status'],items.map(p=>`<tr><td><b>${esc(p.sku)}</b></td><td>${esc(p.name)}</td><td>${esc(p.category||'—')}</td><td><b>${currency(p.price_cents)}</b></td><td>${badge(p.active?'active':'inactive')}</td></tr>`)):empty('◈','Your catalogue is empty','Add items manually, assign your own prices and optionally add a product image URL.',write('products')?'Create product':'','new-product')}</div>`}
-function quotes(cash=false){return section(cash?'Cash office':'Sales & quotations',cash?'Payment processing is not enabled.':'Search quotations, see their creator and approve discounts as owner.',!cash&&write('quotes')?'New quotation':'','new-quote')+`${cash?'<div class="notice warn">No payment posting is enabled here.</div>':''}<div class="panel"><div class="field"><label>Find quotation number, customer or staff</label><input id="quote-filter" placeholder="Search quotation number or name" value="${esc(state.quoteFilter||'')}"></div>${state.quotes.length?rowTable(['Quotation','Customer','Created by','Original','Discount','Final total','Approval','Actions'],state.quotes.filter(q=>![q.reference,q.customer_name,q.created_by_name,q.store_name].join(' ').toLowerCase().includes((state.quoteFilter||'').toLowerCase())).map(q=>`<tr><td><b>${esc(q.reference)}</b><br><small>${esc(q.store_name)}</small></td><td>${esc(q.customer_name)}</td><td>${esc(q.created_by_name||'Unknown')}</td><td>${currency(q.original_total_cents??q.total_cents)}</td><td>${currency(q.discount_cents||0)}</td><td><b>${currency(q.total_cents)}</b></td><td>${q.discount_by?`Approved by ${esc(q.discount_by_name||'Owner')}`:'Normal price'}</td><td><button class="btn small" data-action="quote-print" data-id="${esc(q.id)}">Print</button>${state.user.role==='owner'&&!q.discount_cents?` <button class="btn small primary" data-action="quote-discount" data-id="${esc(q.id)}">Owner discount</button>`:''}</td></tr>`)):empty('▤','No quotations yet','Create your first quotation at the POS.')}</div><p class="muted" style="font-size:11px;margin-top:10px">Discounts are approved by the owner only. Staff print the latest approved quotation from the red POS.</p>`}
 
-function stock(){return section('Stock operations','Controlled document register — GRVs, counts, adjustments, transfers and supplier returns.',write('stock')?'New stock document':'','new-stock')+`<div class="notice warn" style="margin-bottom:18px"><b>Document control only:</b> Approved records do not automatically move stock or update an inventory ledger in this starter product.</div><div class="panel">${state.stock.length?rowTable(['Document','Type','Store','Items','Status','Submitted','Action'],state.stock.map(d=>`<tr><td><b>${esc(d.reference)}</b></td><td>${esc(d.type)}</td><td>${esc(d.store_name)}</td><td>${safeItems(d.lines_json)}</td><td>${badge(d.status)}</td><td>${date(d.created_at)}</td><td><div class="right">${d.status==='draft'&&d.created_by===state.user.id?`<button class="btn small" data-action="stock-submit" data-id="${esc(d.id)}">Submit</button>`:''}${d.status==='submitted'&&['owner','manager'].includes(state.user.role)&&d.created_by!==state.user.id?`<button class="btn small primary" data-action="stock-approve" data-id="${esc(d.id)}">Approve</button><button class="btn small danger" data-action="stock-reject" data-id="${esc(d.id)}">Reject</button>`:''}</div></td></tr>`)):empty('▣','No stock documents yet','Create GRVs, stock counts, adjustments, transfers and returns once your products and stores exist.',write('stock')?'New stock document':'','new-stock')}</div>`}
-function safeItems(raw){try{return Array.isArray(JSON.parse(raw))?JSON.parse(raw).length:0}catch{return 0}}
-function tasks(){return section('Tasks & checklists','Give your team a shared place to track operational work.',write('tasks')?'Create task':'','new-task')+`<div class="panel">${state.tasks.length?rowTable(['Task','Priority','Status','Date','Action'],state.tasks.map(t=>`<tr><td><b>${esc(t.title)}</b><br><small>${esc(t.details)}</small></td><td>${badge(t.priority)}</td><td>${badge(t.status)}</td><td>${date(t.created_at)}</td><td>${write('tasks')?`<select data-task="${esc(t.id)}"><option ${t.status==='open'?'selected':''} value="open">Open</option><option ${t.status==='in_progress'?'selected':''} value="in_progress">In progress</option><option ${t.status==='done'?'selected':''} value="done">Done</option></select>`:''}</td></tr>`)):empty('☑','All clear','Create a task or checklist for a team member.',write('tasks')?'Add task':'','new-task')}</div>`}
-function team(){return section('Staff & access','The owner assigns roles. Employees can be limited to their assigned stores.',['owner','manager'].includes(state.user.role)?'Add sales consultant':'','new-user')+`<div class="panel">${state.users.length?rowTable(['Employee','Username','Role','Store access','Status'],state.users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td>${esc(u.username||'Not set')}</td><td>${badge(u.role)}</td><td>${u.role==='owner'?'All':(state.assignments||[]).filter(a=>a.user_id===u.id).map(a=>state.stores.find(s=>s.id===a.store_id)?.name||'Store').map(esc).join(', ')||'None assigned'}</td><td>${badge(u.active?'active':'inactive')}${state.user.role==='owner'&&u.role!=='owner'?` <button class="btn small" data-action="member-toggle" data-id="${esc(u.id)}">${u.active?'Disable':'Enable'}</button> <button class="btn small" data-action="member-password" data-id="${esc(u.id)}">Reset password</button>`:''}</td></tr>`)):empty('♙','No staff members added','Create staff accounts from this screen. Your owner account will always exist.')}</div><div class="notice info" style="margin-top:17px">Owners manage all staff; managers can create sales consultants only. Roles: Manager, Sales, Cashier, Stock, Dispatch and Viewer. Store assignments restrict staff access to operational records.</div>`}
-function audit(){return section('Activity & audit','Key administrative and operational actions are recorded here.')+`<div class="panel">${state.audit.length?rowTable(['Action','Record','Performed by','Date'],state.audit.map(a=>`<tr><td>${badge(a.action)}</td><td>${esc(a.entity)} · ${esc(a.entity_id)}</td><td>${esc(a.actor_name||'System')}</td><td>${date(a.created_at)}</td></tr>`)):empty('◷','No recorded actions','Your audit trail will appear here as staff use the system.')}</div>`}
-function settings(){return section('Business settings','Manage your identity. Your installation is not tied to a PowerBuild company or branch.')+`<div class="grid-panels">${state.user.role==='owner'?`<div class="panel"><h2>Owner sign-in username</h2><p class="muted">Set your username once. Keep your existing owner email as a fallback.</p><form id="owner-username-form">${field('username','Owner username','text',true,'pattern="[A-Za-z][A-Za-z0-9._-]{2,39}"')}<button class="btn primary" type="submit">Save username</button></form></div>`:''}<div class="panel"><h2>Company profile</h2><form id="settings-form">${field('name','Registered business / company name')}${field('trading_name','Trading name', 'text',false)}${field('email','General email','email',false)}${field('phone','Telephone','tel',false)}${textarea('address','Head office / business address')}${state.user.role==='owner'?'<button class="btn primary" type="submit">Save business details</button>':'<div class="notice info">Only the owner can edit the company profile.</div>'}</form></div><div class="panel"><h2>Built for your company</h2><div class="list">${['Own trading identity','Empty catalogue at installation','No preloaded locations','Company-controlled staff permissions','Separate deployment and database','Clear audit and document history'].map(t=>`<div class="list-item">✓ &nbsp; ${esc(t)}</div>`).join('')}</div><div class="notice warn" style="margin-top:20px">Payment capture, tax invoicing and live stock posting are not enabled in V1. Have a qualified implementer verify financial controls before using them operationally.</div></div></div>`}
-function locked(which){return section(which==='dispatch'?'Dispatch & fulfilment':'Reports & intelligence',which==='dispatch'?'Reserved for the paid-invoice picking workflow.':'Management overview and future reconciled reports.')+`<div class="locked"><div class="eyebrow">COMING IN A CONTROLLED RELEASE</div><h2>${which==='dispatch'?'Dispatch requires a verified paid invoice':'Financial reporting needs a connected accounting ledger'}</h2><p>${which==='dispatch'?'Sales quotations cannot trigger picking or stock release. Dispatch will become available only after verified Cash Office posting and role-based controls are implemented.':'This installation provides basic operational counts and the activity register. Real GP, stock valuations, VAT and cash-up figures require verified ledger connections.'}</p><span class="tag amber">Transaction controls not activated</span></div>`}
-function reports(){return section('Management reports','Operational statistics from your customer-owned database.')+`<div class="stats">${stat('Stores',state.overview.stores,'▦','Created locations')}${stat('Products',state.overview.products,'◈','Active catalogue')}${stat('Quotes',state.overview.quotes,'▤','Sales documents')}${stat('Pending tasks',state.overview.tasks,'☑','Work remaining')}</div><div class="locked"><div class="eyebrow">COMING IN A CONTROLLED RELEASE</div><h2>Financial reporting needs a connected accounting ledger</h2><p>Basic operational counts are shown above. Gross profit, valuation, VAT, cash-up and financial reports require a verified accounting and stock ledger.</p><span class="tag amber">Financial reporting not activated</span></div>`}
-function draw(){if(!state.user)return authScreen(state.setup);if(!permitted(state.view))state.view='home';let content={home,stores,products,quotes:()=>quotes(false),cash:()=>quotes(true),stock,tasks,team,settings,audit,dispatch:()=>locked('dispatch'),reports}[state.view]();base(content);wire();if(state.view==='settings')fillSettings()}
-function fillSettings(){for(const [key,val] of Object.entries(state.business||{})){const input=document.querySelector('#settings-form [name="'+key+'"]');if(input)input.value=String(val??'')}const un=$('#owner-username-form');if(un){un.querySelector('[name=username]').value=state.user.username||'';un.onsubmit=async e=>{e.preventDefault();try{const data=await post('my-username',formValues(un));state.user.username=data.username;notify('Owner username saved');draw()}catch(ex){err(ex)}}}const f=$('#settings-form');if(f)f.onsubmit=async e=>{e.preventDefault();try{await post('business',formValues(f));state.business=(await api('business')).business;notify('Business details updated')}catch(ex){err(ex)}}}
-function lineForm(){return `<div class="form-lines"><div class="panel-head"><h3>Product lines</h3><button class="btn small" type="button" data-action="add-line">+ Add line</button></div><div id="lines">${lineMarkup()}</div></div>`}
-function lineMarkup(){return `<div class="line-row"><div class="field"><label>Product SKU</label><select name="sku" required><option value="">Choose product…</option>${state.products.filter(p=>p.active).map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)} — ${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label>Qty</label><input type="number" name="qty" min="1" step="1" value="1" required/></div><button class="btn danger small" type="button" data-action="remove-line">✕</button></div>`}
-function modals(action){let title='',content='',size='';const storesList=optionStores();switch(action){case 'new-store':title='Add your location';content=`<div class="form-grid">${field('name','Store name')}${field('code','Short store code')}</div>${field('phone','Telephone','tel',false)}${textarea('address','Address')}`;break;
-case 'new-product':title='Add a new product';content=`<div class="form-grid">${field('sku','Your SKU / product code')}${field('name','Product name')}${field('category','Category','text',false)}${field('barcode','Barcode','text',false)}${field('price','Selling price (R)','number',true,'min="0" step="0.01" value="0"')}${field('cost','Cost price (R)','number',true,'min="0" step="0.01" value="0"')}</div>${field('image_url','Product image URL (optional)','url',false,'placeholder="https://…"')}${textarea('description','Description')}`;break;
-case 'new-task':title='Create a team task';content=`${field('title','Task title')}${choice('store_id','Location (optional)',storesList,false)}${choice('priority','Priority',[{id:'low',name:'Low'},{id:'normal',name:'Normal'},{id:'high',name:'High'}])}${textarea('details','Instructions')}`;break;
-case 'new-quote':title='Create quotation';size='large';content=`<div class="notice info" style="margin-bottom:14px">Sales may create quotations only. Cash/Card payment confirmation is not available here.</div><div class="form-grid">${choice('store_id','Selling store',storesList)}${field('customer_name','Customer name')}${field('customer_phone','Phone','tel',false)}</div>${lineForm()}`;break;
-case 'new-stock':title='New stock document';size='large';content=`<div class="notice warn" style="margin-bottom:14px">Document control only — approval will not change physical stock balances.</div><div class="form-grid">${choice('type','Document type',[{id:'grv',name:'GRV / Receiving'},{id:'count',name:'Stock count'},{id:'adjustment',name:'Stock adjustment'},{id:'transfer',name:'Stock transfer'},{id:'supplier_return',name:'Supplier return'}])}${choice('store_id','Sending / receiving store',storesList)}${choice('destination_store_id','Transfer destination (if applicable)',storesList,false)}${field('counterparty','Supplier / reference','text',false)}</div>${textarea('note','Operational notes')}${lineForm()}`;break;
-case 'new-user':title='Create an employee account';content=`<div class="form-grid">${field('name','Employee name')}${field('username','Username (no email required)','text',true,'pattern="[A-Za-z][A-Za-z0-9._-]{2,39}"')}${field('password','Temporary password (12+ characters)','password',true,'minlength="12"')}${state.user.role==='owner'?choice('role','Staff role',['manager','sales','cashier','stock','dispatch','viewer'].map(x=>({id:x,name:x[0].toUpperCase()+x.slice(1)}))):'<input type="hidden" name="role" value="sales"><div class="notice info">Role: Sales Consultant (fixed for managers)</div>'}</div><div class="field"><label>Assign locations (Ctrl+click to choose multiple)</label><select name="store_ids" multiple size="${Math.min(5,Math.max(2,storesList.length))}" style="min-height:85px">${storesList.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></div><div class="notice info">Staff sign in using their username and password. No store access is granted until you select one.</div>`;break;default:return}
-state.modal=`<div class="modal-mask" id="modal-mask"><div class="modal ${size}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-head"><div><div class="eyebrow">SULMOS26 / WORKSPACE</div><h2>${esc(title)}</h2></div><button class="modal-close" type="button" data-action="close-modal">✕</button></div><form id="entry-form">${content}<div class="actions"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save record →</button></div></form></div></div>`;draw();$('#entry-form').onsubmit=async e=>{e.preventDefault();const form=e.target,values=formValues(form),btn=form.querySelector('[type="submit"]');btn.disabled=true;try{if(action==='new-product'){values.price_cents=Math.round(Number(values.price)*100);values.cost_cents=Math.round(Number(values.cost)*100);delete values.price;delete values.cost}
-if(action==='new-stock'||action==='new-quote'){values.lines=[...form.querySelectorAll('.line-row')].map(row=>({sku:row.querySelector('[name="sku"]').value,qty:Number(row.querySelector('[name="qty"]').value)}));if(values.lines.some(x=>!x.sku))throw Error('Select a product on every line')}
-if(action==='new-user')values.store_ids=[...form.querySelector('[name="store_ids"]').selectedOptions].map(o=>o.value);
-const route={'new-store':'stores','new-product':'products','new-task':'tasks','new-quote':'quotations','new-stock':'stock-documents','new-user':'users'}[action];const result=await post(route,values);state.modal=null;notify(result.reference?`Saved ${result.reference}`:'Record created successfully');await refresh();await load({'new-store':'stores','new-product':'products','new-task':'tasks','new-quote':'quotes','new-stock':'stock','new-user':'team'}[action]);}catch(ex){err(ex);btn.disabled=false}}}
-function printQuote(q,w){let lines=[];try{lines=JSON.parse(q.lines_json)}catch{}if(!w)return notify('Allow pop-ups to print the quotation',true);w.document.write(`<!doctype html><html><head><title>${esc(q.reference)} · Sulmos26</title><style>body{font-family:Arial,sans-serif;color:#1a3038;padding:35px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:4px solid #009e9a;padding-bottom:12px}img{width:210px}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:25px}th{background:#12343e;color:#fff;text-align:left;padding:11px}td{border-bottom:1px solid #dbe5e8;padding:12px}.total{text-align:right;font-size:20px;font-weight:bold;margin-top:25px}.warn{border:2px solid #e8b04b;padding:14px;margin-top:30px;font-weight:bold;color:#926211}@media print{body{padding:12px}}</style></head><body><header><img src="${location.origin}/assets/sulmos26-logo.png"><div><h1>QUOTATION</h1><b>${esc(q.reference)}</b><p>${date(q.created_at)}</p></div></header><p><b>Customer:</b> ${esc(q.customer_name)}<br><b>Store:</b> ${esc(q.store_name)}<br><b>Created by:</b> ${esc(q.created_by_name||'Unknown')}<br><b>Revision:</b> ${esc(q.revision||0)}</p><table><thead><tr><th>SKU</th><th>Description</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead><tbody>${lines.map(l=>`<tr><td>${esc(l.sku)}</td><td>${esc(l.name)}</td><td>${esc(l.qty)}</td><td>${currency(l.unit_price_cents)}</td><td>${currency(l.line_total_cents)}</td></tr>`).join('')}</tbody></table><div class="total">${q.discount_cents?`Original: ${currency(q.original_total_cents??q.total_cents+q.discount_cents)}<br>Owner approved discount: -${currency(q.discount_cents)}<br>Reason: ${esc(q.discount_reason)}<br>Approved by: ${esc(q.discount_by_name||'Owner')}<br>`:''}TOTAL: ${currency(q.total_cents)}</div><div class="warn">UNPAID QUOTATION · NOT AN INVOICE · PAYMENT NOT CONFIRMED</div><p>Payment processing and stock release are not available in this edition.</p></body></html>`);w.document.close();setTimeout(()=>{w.focus();w.print()},400)}
-function wire(){document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{state.menu=false;state.modal=null;load(el.dataset.view).catch(err)});document.querySelectorAll('[data-action]').forEach(el=>el.onclick=async()=>{const action=el.dataset.action;if(action==='quote-discount'){
- const q=state.quotes.find(x=>x.id===el.dataset.id);if(!q||state.user.role!=='owner')return;
- if(q.discount_cents){return err(Error('Quotation already discounted'))}
- const type=prompt(`Discount for ${q.reference}\nType P for percentage or R for Rand amount:`, 'P');
- if(type===null)return;
- if(!['P','R'].includes(type.trim().toUpperCase()))return err(Error('Use P or R'));
- const input=prompt(type.trim().toUpperCase()==='P'?'Percentage discount (e.g. 5):':'Discount amount in Rand (e.g. 50):');
- if(input===null)return;
- const v=Number(input),amount=type.trim().toUpperCase()==='P'?Math.round(q.total_cents*v/100):Math.round(v*100);
- if(!Number.isFinite(v)||v<=0||!Number.isSafeInteger(amount)||amount<1||amount>q.total_cents)return err(Error('Discount must be positive and within quotation total'));
- const reason=prompt('Reason for the discount (minimum 5 characters):');if(reason===null)return;
- if(reason.trim().length<5)return err(Error('Enter a reason of at least 5 characters'));
- if(!confirm(`Approve ${currency(amount)} discount on ${q.reference}?\nFinal total: ${currency(q.total_cents-amount)}\nThis approval cannot be changed by sales staff.`))return;
- try{await post(`quotations/${q.id}/discount`,{discount_cents:amount,reason:reason.trim()});notify('Owner discount approved. Sales consultant can refresh and reprint.');await load('quotes')}catch(e){err(e)}return;
- }
- if(action==='member-toggle'||action==='member-password'){const target=state.users.find(x=>x.id===el.dataset.id);if(!target)return;let payload={id:target.id};if(action==='member-toggle'){if(!confirm(`${target.active?'Disable':'Enable'} account for ${target.name}?`))return;payload.active=!target.active}else{const pass=prompt('Enter a NEW temporary password (at least 12 characters) for '+target.name);if(pass===null)return;if(pass.length<12)return err(Error('Password must be at least 12 characters'));payload.password=pass}try{await api('users',{method:'PATCH',body:JSON.stringify(payload)});notify('Member account updated');await load('team')}catch(ex){err(ex)}return}if(action==='menu'){state.menu=!state.menu;draw()}else if(action==='logout'){try{await post('logout',{});location.reload()}catch(ex){err(ex)}}else if(action==='close-modal'){state.modal=null;draw()}else if(action==='add-line'){const parent=$('#lines');parent.insertAdjacentHTML('beforeend',lineMarkup());wireLineButtons()}else if(action==='remove-line'){if(document.querySelectorAll('.line-row').length>1)el.closest('.line-row')?.remove();else err(Error('Keep at least one product line'))}else if(action==='quote-print'){const w=window.open('','_blank','width=850,height=800');if(!w)return err(Error('Allow pop-ups to print quotations'));try{const d=await api(`quotations/${el.dataset.id}`);printQuote(d.quotation,w)}catch(e){w.close();err(e)}}else if(action.startsWith('stock-')){const verb=action.slice(6);if(!confirm(`Confirm ${verb} for this document? This changes document status only; it DOES NOT post live inventory.`))return;try{await post(`stock-documents/${el.dataset.id}/${verb}`,{});notify('Document '+verb+' successful');await load('stock')}catch(ex){err(ex)}}else if(action.startsWith('new-')){if(!['new-store','new-product','new-task','new-user'].includes(action)&&!state.stores.length)return err(Error('Create your store first'));if(['new-quote','new-stock'].includes(action)&&!state.products.length)return err(Error('Add at least one product first'));modals(action)}});const quoteSearch=$('#quote-filter');if(quoteSearch)quoteSearch.oninput=e=>{state.quoteFilter=e.target.value;const p=e.target.selectionStart;draw();const x=$('#quote-filter');if(x){x.focus();x.setSelectionRange(p,p)}};document.querySelectorAll('[data-task]').forEach(el=>el.onchange=async()=>{try{await post(`tasks/${el.dataset.task}/status`,{status:el.value});notify('Task status updated');await load('tasks')}catch(ex){err(ex)}});document.querySelectorAll('[data-search]').forEach(el=>el.oninput=e=>{state.filter=e.target.value;const pos=e.target.selectionStart;draw();const input=$('[data-search]');if(input){input.focus();input.setSelectionRange(pos,pos)}})}
-function wireLineButtons(){document.querySelectorAll('.line-row [data-action="remove-line"]').forEach(el=>el.onclick=()=>{if(document.querySelectorAll('.line-row').length<=1)return err(Error('Keep at least one product line'));el.closest('.line-row').remove()})}
-async function init(){try{const x=await api('session');state.setup=x.setup;state.user=x.user;if(state.user){await refresh();await load('home')}else authScreen(x.setup)}catch(e){$('#app').innerHTML=`<div class="boot"><h2>Workspace connection unavailable</h2><p>Please check your D1 database migration and deployment.</p><button class="btn primary" onclick="location.reload()">Retry</button></div>`;err(e)}}
-init();
-=======
-function rowTable
+/*
+ SULMOS26 HUB
+ Green Hub Startup Recovery
+ Frontend only - no database changes
+*/
+
+const $ = (selector) => document.querySelector(selector);
+
+const esc = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
+
+const money = (cents) =>
+  new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR"
+  }).format((Number(cents) || 0) / 100);
+
+const state = {
+  user: null,
+  business: null,
+  view: "home",
+  stores: [],
+  products: [],
+  quotations: [],
+  stock: [],
+  staff: [],
+  tasks: [],
+  overview: {},
+  filter: "",
+  error: ""
+};
+
+const sections = [
+  ["home", "Overview", "⌂"],
+  ["stores", "Stores & locations", "▦"],
+  ["products", "Product catalogue", "◈"],
+  ["quotations", "Sales & quotations", "▤"],
+  ["cash", "Cash office", "◉"],
+  ["stock", "Stock operations", "▣"],
+  ["dispatch", "Dispatch", "⇄"],
+  ["tasks", "Tasks & checklists", "☑"],
+  ["staff", "Staff & access", "♙"],
+  ["reports", "Reports", "▥"],
+  ["settings", "Business settings", "⚙"]
+];
+
+async function api(path, options = {}) {
+  const response = await fetch("/api/" + path, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || "Request failed: HTTP " + response.status
+    );
+  }
+
+  return data;
+}
+
+async function post(path, data) {
+  return api(path, {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+function notify(text, error = false) {
+  const element = document.createElement("div");
+  element.className = "toast" + (error ? " error" : "");
+  element.textContent = String(text);
+  document.body.appendChild(element);
+
+  setTimeout(() => element.remove(), 4500);
+}
+
+function showError(error) {
+  notify(error.message || String(error), true);
+}
 
 function safeItems(raw) {
   try {
-    const items = JSON.parse(raw || '[]');
+    const items = JSON.parse(raw || "[]");
     return Array.isArray(items) ? items.length : 0;
   } catch {
     return 0;
   }
 }
- (head,rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`}
-function section(title,subtitle,button='',action=''){return `<div class="toolbar"><div><h1>${esc(title)}</h1><p class="subhead" style="margin-bottom:0">${esc(subtitle)}</p></div>${button?`<button class="btn primary" data-action="${esc(action)}">+ ${esc(button)}</button>`:''}</div>`}
-function formValues(form){return Object.fromEntries(new FormData(form).entries())}
-function logo(){return '/assets/sulmos26-logo.png'}
->>>>>>> d4abef830c35830856fc25facf7120e623c32c03
+
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("en-ZA");
+}
+
+function status(value) {
+  const text = String(value || "open");
+  return '<span class="tag grey">' +
+    esc(text.replaceAll("_", " ")) +
+    "</span>";
+}
+
+function table(headers, rows) {
+  return `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            ${headers.map(h => `<th>${esc(h)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>${rows.join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function empty(title, message) {
+  return `
+    <div class="empty">
+      <h3>${esc(title)}</h3>
+      <p>${esc(message)}</p>
+    </div>
+  `;
+}
+
+function heading(title, subtitle) {
+  return `
+    <div class="toolbar">
+      <div>
+        <h1>${esc(title)}</h1>
+        <p class="subhead">${esc(subtitle)}</p>
+      </div>
+    </div>
+  `;
+}
+
+function tile(label, amount, description) {
+  return `
+    <div class="stat">
+      <div class="title">${esc(label)}</div>
+      <div class="number">${Number(amount) || 0}</div>
+      <div class="caption">${esc(description)}</div>
+    </div>
+  `;
+}
+
+function loginScreen(setup = false) {
+  $("#app").innerHTML = `
+    <div class="setup-wrap">
+      <div class="setup-left">
+        <div>
+          <div class="setup-brand">
+            <img src="/assets/sulmos26-logo.png"
+                 alt="SULMOS26">
+          </div>
+          <h1>Your business.<br><em>One system.</em></h1>
+          <p>Secure retail management workspace.</p>
+        </div>
+      </div>
+
+      <div class="setup-right">
+        <div class="setup-card">
+          <div class="eyebrow">SULMOS26 HUB</div>
+          <h2>${setup ? "Create owner account" : "Welcome back"}</h2>
+          <p>Enter your credentials to continue.</p>
+
+          <form id="login-form">
+            ${setup ? `
+              <div class="field">
+                <label>Business name</label>
+                <input name="business" required>
+              </div>
+              <div class="field">
+                <label>Full name</label>
+                <input name="name" required>
+              </div>
+              <div class="field">
+                <label>Recovery email</label>
+                <input name="email" type="email" required>
+              </div>
+              <div class="field">
+                <label>Installation key</label>
+                <input name="setup_key" type="password"
+                       minlength="32" required>
+              </div>
+            ` : ""}
+
+            <div class="field">
+              <label>Username</label>
+              <input name="username"
+                     autocomplete="username"
+                     required>
+            </div>
+
+            <div class="field">
+              <label>Password</label>
+              <input name="password"
+                     type="password"
+                     autocomplete="current-password"
+                     required>
+            </div>
+
+            <button class="btn primary"
+                    style="width:100%"
+                    type="submit">
+              ${setup ? "Create workspace" : "Sign in"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  $("#login-form").onsubmit = async (event) => {
+    event.preventDefault();
+
+    const form = event.target;
+    const values = Object.fromEntries(new FormData(form));
+    const button = form.querySelector("button");
+    button.disabled = true;
+
+    try {
+      let result;
+
+      if (setup) {
+        const key = values.setup_key;
+        delete values.setup_key;
+
+        result = await api("setup", {
+          method: "POST",
+          headers: {
+            "x-sulmos26-setup-token": key
+          },
+          body: JSON.stringify(values)
+        });
+      } else {
+        result = await post("login", values);
+      }
+
+      state.user = result.user;
+      await refreshAll();
+      render();
+    } catch (error) {
+      showError(error);
+    } finally {
+      button.disabled = false;
+    }
+  };
+}
+
+function permitted(view) {
+  const role = state.user?.role;
+
+  if (["home", "stores", "products", "tasks", "settings"].includes(view)) {
+    return true;
+  }
+
+  if (["staff", "reports"].includes(view)) {
+    return ["owner", "manager"].includes(role);
+  }
+
+  if (view === "stock") {
+    return ["owner", "manager", "stock", "viewer"].includes(role);
+  }
+
+  if (["quotations", "cash"].includes(view)) {
+    return ["owner", "manager", "sales", "cashier", "viewer"].includes(role);
+  }
+
+  return ["owner", "manager", "dispatch", "cashier"].includes(role);
+}
+
+function sidebar() {
+  return `
+    <div class="sidebar">
+      <div class="brand-pane">
+        <img src="/assets/sulmos26-logo.png" alt="SULMOS26">
+        <div class="brand-caption">YOUR BUSINESS. ONE SYSTEM.</div>
+      </div>
+
+      <div class="nav-label">WORKSPACE</div>
+
+      ${sections
+        .filter(([key]) => permitted(key))
+        .map(([key, label, icon]) => `
+          <button class="nav ${state.view === key ? "active" : ""}"
+                  data-view="${key}">
+            <span style="font-size:20px;width:21px">
+              ${icon}
+            </span>
+            <span>${esc(label)}</span>
+            <span class="nav-arrow">›</span>
+          </button>
+        `).join("")}
+
+      <div class="side-bottom">
+        <div class="mini-user">
+          <span class="avatar">
+            ${esc(state.user?.name?.[0] || "U")}
+          </span>
+
+          <div>
+            <strong>${esc(state.user?.name)}</strong>
+            <small>${esc(state.user?.role)}</small>
+          </div>
+        </div>
+
+        <button id="logout">↪ Sign out</button>
+      </div>
+    </div>
+  `;
+}
+
+function layout(content) {
+  const name = sections.find(s => s[0] === state.view)?.[1] || "Overview";
+
+  $("#app").innerHTML = `
+    <div class="shell">
+      ${sidebar()}
+
+      <div class="main">
+        <header class="topbar">
+          <div class="crumb">
+            <b>SULMOS26</b>
+            <span>/</span>
+            <span>${esc(name)}</span>
+          </div>
+
+          <div class="top-actions">
+            <span class="pill">
+              <span class="dot"></span>
+              INDEPENDENT WORKSPACE
+            </span>
+            <span class="top-avatar">
+              ${esc(state.user?.name?.slice(0, 2) || "SU")}
+            </span>
+          </div>
+        </header>
+
+        <main class="workspace">
+          ${content}
+
+          <div class="footer">
+            <span>© SULMOS26 · Your business. One system.</span>
+            <span>Secure business workspace</span>
+          </div>
+        </main>
+      </div>
+    </div>
+  `;
+}
+
+function homePage() {
+  const o = state.overview || {};
+
+  return `
+    <div class="eyebrow">WELCOME TO YOUR WORKSPACE</div>
+
+    <div class="hero">
+      <div>
+        <div class="eyebrow">SULMOS26 / RETAIL MANAGEMENT</div>
+
+        <h1>
+          Everything your business needs.<br>
+          <em>One connected space.</em>
+        </h1>
+
+        <p>
+          ${esc(
+            state.business?.trading_name ||
+            state.business?.name ||
+            "Your business"
+          )}
+        </p>
+      </div>
+    </div>
+
+    <div class="stats">
+      ${tile("Locations", o.stores, "Your stores")}
+      ${tile("Catalogue items", o.products, "Active products")}
+      ${tile("Quotations", o.quotes, "Sales documents")}
+      ${tile("Stock documents", o.documents, "Stock control register")}
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Welcome to SULMOS26 HUB</h2>
+      </div>
+
+      <p>
+        Your existing business records remain in your database.
+        Select a section on the left to view them.
+      </p>
+    </div>
+  `;
+}
+
+function storesPage() {
+  return heading(
+    "Stores & locations",
+    "Your business locations"
+  ) + `
+    <div class="panel">
+      ${state.stores.length
+        ? table(
+          ["Store", "Code", "Address", "Status"],
+          state.stores.map(s => `
+            <tr>
+              <td><b>${esc(s.name)}</b></td>
+              <td>${esc(s.code)}</td>
+              <td>${esc(s.address || "—")}</td>
+              <td>${status(s.active ? "active" : "inactive")}</td>
+            </tr>
+          `)
+        )
+        : empty("No stores found", "No store records available.")}
+    </div>
+  `;
+}
+
+function productsPage() {
+  const items = state.products.filter(p =>
+    [p.name, p.sku, p.category].join(" ")
+      .toLowerCase()
+      .includes(state.filter.toLowerCase())
+  );
+
+  return heading(
+    "Product catalogue",
+    "View your products and selling prices"
+  ) + `
+    <div class="panel">
+      <div class="toolbar">
+        <input id="product-search"
+               placeholder="Search product or SKU"
+               value="${esc(state.filter)}">
+      </div>
+
+      ${state.products.length
+        ? table(
+          ["SKU", "Product", "Category", "Selling price", "Status"],
+          items.map(p => `
+            <tr>
+              <td><b>${esc(p.sku)}</b></td>
+              <td>${esc(p.name)}</td>
+              <td>${esc(p.category || "—")}</td>
+              <td><b>${money(p.price_cents)}</b></td>
+              <td>${status(p.active ? "active" : "inactive")}</td>
+            </tr>
+          `)
+        )
+        : empty("No products found", "Your catalogue is empty.")}
+    </div>
+  `;
+}
+
+function quotationsPage(cash = false) {
+  return heading(
+    cash ? "Cash Office" : "Sales & quotations",
+    cash
+      ? "Quotation lookup only — no payment processing enabled"
+      : "Customer quotations and approved totals"
+  ) + `
+    ${cash ? `
+      <div class="notice warn">
+        Cash payments, card payments and EFT posting
+        are not enabled in this recovery interface.
+      </div>
+    ` : ""}
+
+    <div class="panel">
+      <div class="field">
+        <label>Quotation reference</label>
+        <input id="quotation-search"
+               placeholder="Enter quotation number"
+               value="${esc(state.filter)}">
+      </div>
+
+      ${state.quotations.length
+        ? table(
+          [
+            "Quotation",
+            "Customer",
+            "Store",
+            "Sales consultant",
+            "Total",
+            "Status"
+          ],
+          state.quotations
+            .filter(q =>
+              [
+                q.reference,
+                q.customer_name,
+                q.store_name,
+                q.created_by_name
+              ].join(" ")
+                .toLowerCase()
+                .includes(state.filter.toLowerCase())
+            )
+            .map(q => `
+              <tr>
+                <td><b>${esc(q.reference)}</b></td>
+                <td>${esc(q.customer_name)}</td>
+                <td>${esc(q.store_name || "—")}</td>
+                <td>${esc(q.created_by_name || "—")}</td>
+                <td><b>${money(q.total_cents)}</b></td>
+                <td>${status(q.status)}</td>
+              </tr>
+            `)
+        )
+        : empty("No quotations", "No quotation records available.")}
+    </div>
+  `;
+}
+
+function stockPage() {
+  return heading(
+    "Stock operations",
+    "Stock control documents"
+  ) + `
+    <div class="notice warn">
+      This recovery screen shows existing stock documents.
+      It does not post stock movements or approve adjustments.
+    </div>
+
+    <div class="panel">
+      ${state.stock.length
+        ? table(
+          [
+            "Reference",
+            "Document type",
+            "Store",
+            "Items",
+            "Status",
+            "Date"
+          ],
+          state.stock.map(d => `
+            <tr>
+              <td><b>${esc(d.reference)}</b></td>
+              <td>${esc(d.type)}</td>
+              <td>${esc(d.store_name || "—")}</td>
+              <td>${safeItems(d.lines_json)}</td>
+              <td>${status(d.status)}</td>
+              <td>${formatDate(d.created_at)}</td>
+            </tr>
+          `)
+        )
+        : empty(
+          "No stock documents",
+          "No stock documents are currently available."
+        )}
+    </div>
+  `;
+}
+
+function tasksPage() {
+  return heading(
+    "Tasks & checklists",
+    "Operational tasks"
+  ) + `
+    <div class="panel">
+      ${state.tasks.length
+        ? table(
+          ["Task", "Priority", "Status", "Created"],
+          state.tasks.map(t => `
+            <tr>
+              <td>
+                <b>${esc(t.title)}</b>
+                <small>${esc(t.details || "")}</small>
+              </td>
+              <td>${status(t.priority)}</td>
+              <td>${status(t.status)}</td>
+              <td>${formatDate(t.created_at)}</td>
+            </tr>
+          `)
+        )
+        : empty("No tasks", "Your task register is empty.")}
+    </div>
+  `;
+}
+
+function staffPage() {
+  return heading(
+    "Staff & access",
+    "Employee accounts and assigned roles"
+  ) + `
+    <div class="panel">
+      ${state.staff.length
+        ? table(
+          ["Employee", "Username", "Role", "Status"],
+          state.staff.map(u => `
+            <tr>
+              <td><b>${esc(u.name)}</b></td>
+              <td>${esc(u.username || "—")}</td>
+              <td>${status(u.role)}</td>
+              <td>${status(u.active ? "active" : "inactive")}</td>
+            </tr>
+          `)
+        )
+        : empty("No staff records", "No staff records available.")}
+    </div>
+  `;
+}
+
+function reportsPage() {
+  const o = state.overview || {};
+
+  return heading(
+    "Reports",
+    "Operational overview"
+  ) + `
+    <div class="stats">
+      ${tile("Stores", o.stores, "Locations")}
+      ${tile("Products", o.products, "Catalogue")}
+      ${tile("Quotations", o.quotes, "Sales documents")}
+      ${tile("Tasks", o.tasks, "Operational tasks")}
+    </div>
+
+    <div class="notice info">
+      Paid turnover, tax invoices, stock valuation and
+      cashier reconciliation require their dedicated systems.
+    </div>
+  `;
+}
+
+function settingsPage() {
+  return heading(
+    "Business settings",
+    "Your business profile"
+  ) + `
+    <div class="panel">
+      <h2>Company information</h2>
+
+      <div class="list">
+        <div class="list-item">
+          <b>Business name</b>
+          <span>${esc(state.business?.name || "—")}</span>
+        </div>
+
+        <div class="list-item">
+          <b>Trading name</b>
+          <span>${esc(state.business?.trading_name || "—")}</span>
+        </div>
+
+        <div class="list-item">
+          <b>Contact email</b>
+          <span>${esc(state.business?.email || "—")}</span>
+        </div>
+
+        <div class="list-item">
+          <b>Telephone</b>
+          <span>${esc(state.business?.phone || "—")}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function dispatchPage() {
+  return heading(
+    "Dispatch",
+    "Controlled collection and delivery operations"
+  ) + `
+    <div class="panel">
+      <h2>Dispatch controls</h2>
+      <p>
+        Dispatch must verify the paid order before
+        releasing goods to customers.
+      </p>
+      <div class="notice warn">
+        Dispatch posting is not enabled in this recovery screen.
+      </div>
+    </div>
+  `;
+}
+
+function render() {
+  if (!state.user) {
+    loginScreen(false);
+    return;
+  }
+
+  let content = "";
+
+  switch (state.view) {
+    case "stores":
+      content = storesPage();
+      break;
+    case "products":
+      content = productsPage();
+      break;
+    case "quotations":
+      content = quotationsPage();
+      break;
+    case "cash":
+      content = quotationsPage(true);
+      break;
+    case "stock":
+      content = stockPage();
+      break;
+    case "dispatch":
+      content = dispatchPage();
+      break;
+    case "tasks":
+      content = tasksPage();
+      break;
+    case "staff":
+      content = staffPage();
+      break;
+    case "reports":
+      content = reportsPage();
+      break;
+    case "settings":
+      content = settingsPage();
+      break;
+    default:
+      content = homePage();
+  }
+
+  layout(content);
+  wire();
+}
+
+async function refreshAll() {
+  const requests = [
+    ["stores", "stores", "items"],
+    ["products", "products", "items"],
+    ["business", "business", "business"],
+    ["overview", "overview", null]
+  ];
+
+  await Promise.all(requests.map(async ([key, path, property]) => {
+    try {
+      const result = await api(path);
+      state[key] = property ? (result[property] || []) : result;
+    } catch (error) {
+      console.warn("Unable to load " + path, error);
+    }
+  }));
+}
+
+async function openSection(view) {
+  if (!permitted(view)) {
+    notify("You do not have access to this section.", true);
+    return;
+  }
+
+  state.view = view;
+  state.filter = "";
+
+  try {
+    if (view === "stores") {
+      state.stores = (await api("stores")).items || [];
+    }
+
+    if (view === "products") {
+      state.products = (await api("products")).items || [];
+    }
+
+    if (view === "quotations" || view === "cash") {
+      state.quotations = (await api("quotations")).items || [];
+    }
+
+    if (view === "stock") {
+      state.stock = (await api("stock-documents")).items || [];
+    }
+
+    if (view === "tasks") {
+      state.tasks = (await api("tasks")).items || [];
+    }
+
+    if (view === "staff") {
+      state.staff = (await api("users")).items || [];
+    }
+
+    if (view === "reports" || view === "home") {
+      state.overview = await api("overview");
+    }
+  } catch (error) {
+    showError(error);
+  }
+
+  render();
+}
+
+function wire() {
+  document.querySelectorAll("[data-view]").forEach(button => {
+    button.onclick = () => openSection(button.dataset.view);
+  });
+
+  const logout = $("#logout");
+
+  if (logout) {
+    logout.onclick = async () => {
+      try {
+        await post("logout", {});
+        state.user = null;
+        loginScreen(false);
+      } catch (error) {
+        showError(error);
+      }
+    };
+  }
+
+  const productSearch = $("#product-search");
+
+  if (productSearch) {
+    productSearch.oninput = (event) => {
+      const value = event.target.value;
+      state.filter = value;
+      render();
+
+      const input = $("#product-search");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(value.length, value.length);
+      }
+    };
+  }
+
+  const quotationSearch = $("#quotation-search");
+
+  if (quotationSearch) {
+    quotationSearch.oninput = (event) => {
+      const value = event.target.value;
+      state.filter = value;
+      render();
+
+      const input = $("#quotation-search");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(value.length, value.length);
+      }
+    };
+  }
+}
+
+async function start() {
+  const app = $("#app");
+
+  if (!app) return;
+
+  try {
+    const session = await api("session");
+
+    if (!session.user) {
+      loginScreen(Boolean(session.setup));
+      return;
+    }
+
+    state.user = session.user;
+
+    await refreshAll();
+
+    render();
+  } catch (error) {
+    app.innerHTML = `
+      <div class="boot" style="text-align:center;padding:60px">
+        <h2>SULMOS26 connection unavailable</h2>
+        <p>${esc(error.message)}</p>
+
+        <button class="btn primary"
+                onclick="location.reload()">
+          Retry
+        </button>
+      </div>
+    `;
+  }
+}
+
+start();
