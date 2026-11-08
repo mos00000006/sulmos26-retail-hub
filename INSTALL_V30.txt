@@ -1,0 +1,25 @@
+SULMOS26 V30 - GREEN HUB SESSION / STAFF ACCESS RECOVERY
+
+CAUSE: The cashier role is restricted by the backend to Cash Office endpoints. If a cashier session is used to open the Green Hub, the Hub formerly tried to load protected management endpoints and showed HTTP 403.
+
+THIS PATCH:
+- Restores the full earlier Green Hub frontend with Staff & Access for Owner/Manager.
+- Shows a friendly switch-account screen to Cashier, Sales and Dispatch accounts.
+- Gives a Sign out / Switch account button for management API failures.
+- Refreshes the index.html application script URL to avoid an old cached script.
+- Leaves backend permissions and all stored data unchanged.
+
+FILES TO INSTALL (merge/backup any newer frontend changes):
+public/app.js
+public/index.html
+
+1. In GitHub, back up your current public/app.js and public/index.html.
+2. Replace exactly those two files with the files in this ZIP (do not paste HTML into app.js).
+3. Commit to main. Verify the GitHub check passes.
+4. Run the GREEN Hub deployment (not POS/Cash/Dispatch).
+5. Open the Green Hub in Chrome, refresh, and sign in as the OWNER.
+6. Staff & Access should appear in the left menu for owner/manager users.
+
+NO database migration. NO account permission escalation.
+WARNING: These are earlier Green Hub frontend files with a targeted recovery change; V21 stock-entry enhancements may need to be restored later.
+A role mismatch is one possible cause; if an owner session still receives HTTP 403, inspect the live Cloudflare backend routing and session details.
