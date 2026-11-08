@@ -1,0 +1,10 @@
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const id=(process.env.SULMOS26_D1_DATABASE_ID||'').trim();
+if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw Error('Missing SULMOS26_D1_DATABASE_ID GitHub secret');
+for(const f of ['public-dispatch/index.html','public-dispatch/manifest.webmanifest','public-dispatch/app.js','public-dispatch/styles.css','public-dispatch/assets/icon-192.png','public-dispatch/assets/icon-512.png','public-dispatch/assets/icon-maskable-512.png','src/dispatch.ts','wrangler.jsonc'])if(!existsSync(f))throw Error('Required Dispatch file missing: '+f);
+const original=readFileSync('wrangler.jsonc','utf8');
+const base=JSON.parse(original.replace(/^\s*\/\/.*$/gm,''));
+if(base.d1_databases?.[0]?.binding!=='DB'||base.d1_databases?.[0]?.database_name!=='sulmos26-db')throw Error('Expected existing shared SULMOS26 D1 binding. Refusing deployment.');
+const dispatch={...base,name:'sulmos26-dispatch',main:'src/dispatch.ts',assets:{directory:'./public-dispatch',binding:'ASSETS',run_worker_first:['/api/*']},d1_databases:[{...base.d1_databases[0],database_id:id}]};
+writeFileSync('wrangler.dispatch.deploy.jsonc',JSON.stringify(dispatch,null,2)+'\n');
+console.log('Prepared SULMOS26 Dispatch Worker; shared D1 maintained; no migrations.');

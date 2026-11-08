@@ -1,0 +1,40 @@
+name: Deploy SULMOS26 Dispatch (Separate Worker)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sulmos26-dispatch-production
+  cancel-in-progress: false
+jobs:
+  deploy-dispatch:
+    name: Deploy blue Dispatch Desk
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check Dispatch front-end syntax
+        run: node --check public-dispatch/app.js
+      - name: Build and test existing application
+        run: npm run check
+      - name: Prepare separate Dispatch Worker
+        run: node .github/scripts/prepare-dispatch-deploy.mjs
+        env:
+          SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+      - name: Deploy Dispatch (without database migrations)
+        run: npx wrangler deploy --config wrangler.dispatch.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Dispatch deployment summary
+        run: |
+          echo '### SULMOS26 Dispatch deployed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Separate blue Dispatch Desk Worker using existing SULMOS26 D1.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No stock movements, dispatch release or payment posting enabled.' >> "$GITHUB_STEP_SUMMARY"
