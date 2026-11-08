@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const api=readFileSync(new URL('../src/dispatch.ts',import.meta.url),'utf8');
+const desk=readFileSync(new URL('../public-dispatch/app.js',import.meta.url),'utf8');
+const cash=readFileSync(new URL('../public-cash/app.js',import.meta.url),'utf8');
+const migration=readFileSync(new URL('../migrations/0009_dispatch_fulfilment.sql',import.meta.url),'utf8');
+test('Dispatch queue only draws from recorded Cash Office receipts',()=>{assert.match(api,/FROM cash_receipts cr JOIN quotations q/);assert.match(api,/WHERE cr.store_id=\?/)});
+test('Dispatch final release verifies paid receipt and assigned store server-side',()=>{assert.match(api,/storeAccess\(db,user,store\)/);assert.match(api,/EXISTS\(SELECT 1 FROM cash_receipts cr/);assert.match(api,/UPDATE dispatch_fulfilments SET state=\?/)});
+test('Only permitted forward state transitions are accepted',()=>{assert.match(api,/picking:'awaiting_picking',ready:'picking',released:'ready'/);assert.match(api,/state=\?\s+AND EXISTS/)});
+test('Stock posting is not falsely declared complete',()=>{assert.match(api,/stock_posted:false/);assert.match(desk,/Automatic stock deduction/)});
+test('Printed documents clearly distinguish non-tax paid copies',()=>{assert.match(cash,/NOT A VAT TAX INVOICE/);assert.match(desk,/NOT A VAT TAX INVOICE/);assert.match(desk,/PICKING SLIP/)});
+test('Dispatch data requires an existing receipt and never permits unauthenticated release',()=>{assert.match(api,/if\(!user\)return fail\('Sign in required',401\)/);assert.match(api,/const payer=await db.prepare\('SELECT id FROM cash_receipts/)});
+test('Fulfilment status is unique to the cash receipt',()=>{assert.match(migration,/receipt_id TEXT PRIMARY KEY REFERENCES cash_receipts\(id\)/);assert.match(migration,/released_by TEXT REFERENCES users/)});

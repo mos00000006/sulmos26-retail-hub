@@ -28,7 +28,12 @@ jobs:
         run: node .github/scripts/prepare-dispatch-deploy.mjs
         env:
           SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
-      - name: Deploy Dispatch (without database migrations)
+      - name: Apply Dispatch fulfilment migration to existing D1
+        run: npx wrangler d1 migrations apply sulmos26-db --remote --config wrangler.dispatch.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy Dispatch Worker
         run: npx wrangler deploy --config wrangler.dispatch.deploy.jsonc
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -37,4 +42,4 @@ jobs:
         run: |
           echo '### SULMOS26 Dispatch deployed' >> "$GITHUB_STEP_SUMMARY"
           echo 'Separate blue Dispatch Desk Worker using existing SULMOS26 D1.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'No stock movements, dispatch release or payment posting enabled.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'V31: Payment-verified pick, ready, release history. Stock ledger posting is not automatic.' >> "$GITHUB_STEP_SUMMARY"

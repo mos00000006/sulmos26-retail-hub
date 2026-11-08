@@ -51,18 +51,69 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(path==='/api/dispatch/queue'&&req.method==='GET'){
    const store=clean(url.searchParams.get('store_id'),64);
    if(!store||!await storeAccess(db,user,store))return fail('Assigned store required',403);
-   // A cash receipt is the only permitted proof of payment in this phase.
-   // No paid receipt = no item in the verified dispatch queue.
-   const result=await db.prepare(`SELECT cr.reference receipt_reference,cr.paid_at,cr.amount_cents,cr.quotation_reference,
+   // An existing cash receipt is the sole payment proof; fulfilment never creates a receipt.
+   const result=await db.prepare(`SELECT cr.id receipt_id,cr.reference receipt_reference,cr.paid_at,cr.amount_cents,cr.quotation_reference,
      q.customer_name,q.customer_phone,q.lines_json,
      so.reference sales_order_reference,so.fulfilment,so.delivery_address,so.requested_date,so.contact_name,so.contact_phone,so.sales_note,
-     consultant.name consultant_name
+     consultant.name consultant_name,
+     COALESCE(df.state,'awaiting_picking') dispatch_state,df.picked_at,df.ready_at,df.released_at,df.collected_by,df.release_note
      FROM cash_receipts cr JOIN quotations q ON q.id=cr.quotation_id
      JOIN users consultant ON consultant.id=q.created_by
      LEFT JOIN sales_orders so ON so.quotation_id=q.id
+     LEFT JOIN dispatch_fulfilments df ON df.receipt_id=cr.id
      WHERE cr.store_id=? ORDER BY cr.paid_at DESC LIMIT 200`).bind(store).all();
-   const items=result.results||[];
-   return json({items,summary:{paid_orders:items.length,collection:items.filter((x:any)=>x.fulfilment==='collection').length,delivery:items.filter((x:any)=>x.fulfilment==='delivery').length,needs_instructions:items.filter((x:any)=>!x.fulfilment).length},read_only:true,stock_deducted:false,release_enabled:false});
+   const items=(result.results||[]).map((x:any)=>({...x,invoice_reference:'INV-'+String(x.receipt_reference||'').replace(/^RC-/,'')}));
+   return json({items,summary:{paid_orders:items.length,awaiting_picking:items.filter((x:any)=>x.dispatch_state==='awaiting_picking').length,picking:items.filter((x:any)=>x.dispatch_state==='picking').length,ready:items.filter((x:any)=>x.dispatch_state==='ready').length,released:items.filter((x:any)=>x.dispatch_state==='released').length},stock_deducted:false});
+  }
+  if(path==='/api/dispatch/verify'&&req.method==='GET'){
+   const store=clean(url.searchParams.get('store_id'),64);
+   const ref=clean(url.searchParams.get('reference'),100).toUpperCase();
+   if(!store||!await storeAccess(db,user,store))return fail('Assigned store required',403);
+   if(!ref)return fail('Enter an invoice, receipt or quotation reference');
+   const paid=await db.prepare(`SELECT cr.id receipt_id,cr.reference receipt_reference,cr.amount_cents,cr.paid_at,cr.quotation_reference,
+    q.customer_name,COALESCE(df.state,'awaiting_picking') dispatch_state,df.released_at
+    FROM cash_receipts cr JOIN quotations q ON q.id=cr.quotation_id
+    LEFT JOIN dispatch_fulfilments df ON df.receipt_id=cr.id
+    WHERE cr.store_id=? AND (UPPER(cr.reference)=? OR UPPER(cr.quotation_reference)=? OR UPPER('INV-'||SUBSTR(cr.reference,4))=?)`)
+    .bind(store,ref,ref,ref).first();
+   if(!paid)return fail('No verified paid invoice found. DO NOT RELEASE GOODS.',404);
+   return json({verified_paid:true,order:{...paid,invoice_reference:'INV-'+String((paid as any).receipt_reference).replace(/^RC-/,'')}});
+  }
+  if(path==='/api/dispatch/progress'&&req.method==='POST'){
+   const b=await req.json() as Record<string,unknown>;
+   const store=clean(b.store_id,64),receipt=clean(b.receipt_reference,100),next=clean(b.next_state,32);
+   if(!store||!await storeAccess(db,user,store))return fail('Assigned store required',403);
+   const transition:Record<string,string>={picking:'awaiting_picking',ready:'picking',released:'ready'};
+   const prev=transition[next];
+   if(!prev)return fail('Invalid dispatch transition',400);
+   const payer=await db.prepare('SELECT id FROM cash_receipts WHERE store_id=? AND reference=?').bind(store,receipt).first<{id:string}>();
+   if(!payer)return fail('Payment not verified: dispatch prohibited',403);
+   const current=await db.prepare('SELECT state FROM dispatch_fulfilments WHERE receipt_id=?').bind(payer.id).first<{state:string}>();
+   if((current?.state||'awaiting_picking')!==prev)return fail('Dispatch state has changed. Refresh the order.',409);
+   const timestamp=now(), collector=clean(b.collected_by,120),note=clean(b.release_note,300);
+   if(next==='released' && !collector)return fail('Enter the person receiving the goods before release');
+   if(next==='picking'){
+    // Conditional insert prevents two staff members taking the same picking task.
+    const result=await db.prepare(`INSERT INTO dispatch_fulfilments(receipt_id,store_id,state,picked_by,picked_at,updated_at)
+      SELECT cr.id,cr.store_id,'picking',?,?,? FROM cash_receipts cr WHERE cr.id=? AND cr.store_id=?
+      AND NOT EXISTS(SELECT 1 FROM dispatch_fulfilments df WHERE df.receipt_id=cr.id)`)
+      .bind(user.id,timestamp,timestamp,payer.id,store).run();
+    if(Number(result.meta?.changes||0)!==1)return fail('Order is already being picked. Refresh.',409);
+   }else{
+    // Final release performs a fresh server-side receipt join and a conditional transition.
+    const result=await db.prepare(`UPDATE dispatch_fulfilments SET state=?,updated_at=?,
+      ready_by=CASE WHEN ?='ready' THEN ? ELSE ready_by END,
+      ready_at=CASE WHEN ?='ready' THEN ? ELSE ready_at END,
+      released_by=CASE WHEN ?='released' THEN ? ELSE released_by END,
+      released_at=CASE WHEN ?='released' THEN ? ELSE released_at END,
+      collected_by=CASE WHEN ?='released' THEN ? ELSE collected_by END,
+      release_note=CASE WHEN ?='released' THEN ? ELSE release_note END
+      WHERE receipt_id=? AND store_id=? AND state=?
+      AND EXISTS(SELECT 1 FROM cash_receipts cr WHERE cr.id=dispatch_fulfilments.receipt_id AND cr.store_id=dispatch_fulfilments.store_id)`)
+      .bind(next,timestamp,next,user.id,next,timestamp,next,user.id,next,timestamp,next,collector,next,note,payer.id,store,prev).run();
+    if(Number(result.meta?.changes||0)!==1)return fail('Order changed or no longer verified. Refresh.',409);
+   }
+   return json({ok:true,receipt_reference:receipt,state:next,stock_posted:false,message:next==='released'?'Goods handover recorded; stock posting remains outstanding.':'Dispatch status updated.'});
   }
   return fail('Endpoint not available in Dispatch Desk',404);
  }catch(e){console.error('SULMOS26_DISPATCH_ERROR',e instanceof Error?e.name:'unknown');return fail('Request could not be completed. Check the Dispatch deployment and database permissions.',500)}
