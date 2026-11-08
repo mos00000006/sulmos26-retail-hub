@@ -1,0 +1,22 @@
+SULMOS26 V32 - Fix outdated Dispatch V31 test
+
+WHY GITHUB FAILED
+Tests passed 50/51. An older test expected "stock_posted:false" but V32 intentionally posts inventory when Dispatch releases paid goods. The V32 Dispatch backend is already compiled by TypeScript successfully. Do not change src/dispatch.ts or migration 0010 for this failure.
+
+CONTENTS
+1. tests/dispatch-v31.test.mjs
+   Updates the outdated expectation to verify V32 only marks stock posted on final release, requires a paid cash receipt and prevents old messaging.
+2. public-dispatch/app.js
+   Corrects an outdated sentence on the printable paid customer copy/picking slip. It now correctly states inventory is deducted upon final Dispatch goods release.
+
+INSTALL
+- Replace the two files at their existing GitHub paths, commit to main.
+- Run Sulmos26 Check (expect all 51 tests to pass if no other changes).
+- When checks pass, run the Dispatch deployment workflow to publish the corrected printable text.
+- Keep the V32 backend and database migration installed; this patch is a test and front-end wording fix ONLY.
+- Do not change the Green Hub, Cash Office backend, D1 database or delete data.
+
+VERIFIED
+node --check public-dispatch/app.js: pass
+node --test tests/dispatch-v31.test.mjs in assembled V31/V32 source: 7/7 pass
+Full GitHub check/live deployment not performed.
