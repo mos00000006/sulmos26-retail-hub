@@ -43,6 +43,14 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const user=await auth(req,db);
   if(!user)return fail('Sign in required',401);
   if(!dispatchRole(user))return fail('Dispatch Desk access only',403);
+  if(path==='/api/document-branding'&&req.method==='GET'){
+   const store=clean(url.searchParams.get('store_id'),64);
+   if(!await storeAccess(db,user,store))return fail('Assigned store required',403);
+   const company=await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind('__company__').first<Record<string,string>>();
+   const local=await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind(store).first<Record<string,string>>();
+   const s=await db.prepare('SELECT name,address,phone FROM stores WHERE id=?').bind(store).first<Record<string,string>>();
+   return json({branding:{store_id:store,display_name:local?.display_name||s?.name||company?.display_name||'',address:local?.address||s?.address||company?.address||'',phone:local?.phone||s?.phone||company?.phone||'',email:local?.email||company?.email||'',logo_data:local?.logo_data||company?.logo_data||''}});
+  }
   if(path==='/api/stores'&&req.method==='GET'){
    const query=['owner','manager'].includes(user.role)?'SELECT id,name,code FROM stores WHERE active=1 ORDER BY name':'SELECT s.id,s.name,s.code FROM stores s JOIN user_stores us ON us.store_id=s.id WHERE s.active=1 AND us.user_id=? ORDER BY s.name';
    const result=['owner','manager'].includes(user.role)?await db.prepare(query).all():await db.prepare(query).bind(user.id).all();
@@ -55,14 +63,15 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    const result=await db.prepare(`SELECT cr.id receipt_id,cr.reference receipt_reference,cr.paid_at,cr.amount_cents,cr.quotation_reference,
      q.customer_name,q.customer_phone,q.lines_json,
      so.reference sales_order_reference,so.fulfilment,so.delivery_address,so.requested_date,so.contact_name,so.contact_phone,so.sales_note,
-     consultant.name consultant_name,
+     consultant.name consultant_name,inv.invoice_number registered_invoice_number,
      COALESCE(df.state,'awaiting_picking') dispatch_state,df.picked_at,df.ready_at,df.released_at,df.collected_by,df.release_note
      FROM cash_receipts cr JOIN quotations q ON q.id=cr.quotation_id
      JOIN users consultant ON consultant.id=q.created_by
      LEFT JOIN sales_orders so ON so.quotation_id=q.id
      LEFT JOIN dispatch_fulfilments df ON df.receipt_id=cr.id
+     LEFT JOIN invoice_documents inv ON inv.receipt_id=cr.id
      WHERE cr.store_id=? ORDER BY cr.paid_at DESC LIMIT 200`).bind(store).all();
-   const items=(result.results||[]).map((x:any)=>({...x,invoice_reference:'INV-'+String(x.receipt_reference||'').replace(/^RC-/,'')}));
+   const items=(result.results||[]).map((x:any)=>({...x,invoice_reference:x.registered_invoice_number||('INV-'+String(x.receipt_reference||'').replace(/^RC-/,''))}));
    return json({items,summary:{paid_orders:items.length,awaiting_picking:items.filter((x:any)=>x.dispatch_state==='awaiting_picking').length,picking:items.filter((x:any)=>x.dispatch_state==='picking').length,ready:items.filter((x:any)=>x.dispatch_state==='ready').length,released:items.filter((x:any)=>x.dispatch_state==='released').length},stock_posted_on_release:true});
   }
   if(path==='/api/dispatch/verify'&&req.method==='GET'){
@@ -71,13 +80,14 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    if(!store||!await storeAccess(db,user,store))return fail('Assigned store required',403);
    if(!ref)return fail('Enter an invoice, receipt or quotation reference');
    const paid=await db.prepare(`SELECT cr.id receipt_id,cr.reference receipt_reference,cr.amount_cents,cr.paid_at,cr.quotation_reference,
-    q.customer_name,COALESCE(df.state,'awaiting_picking') dispatch_state,df.released_at
+    q.customer_name,inv.invoice_number registered_invoice_number,COALESCE(df.state,'awaiting_picking') dispatch_state,df.released_at
     FROM cash_receipts cr JOIN quotations q ON q.id=cr.quotation_id
     LEFT JOIN dispatch_fulfilments df ON df.receipt_id=cr.id
-    WHERE cr.store_id=? AND (UPPER(cr.reference)=? OR UPPER(cr.quotation_reference)=? OR UPPER('INV-'||SUBSTR(cr.reference,4))=?)`)
-    .bind(store,ref,ref,ref).first();
+     LEFT JOIN invoice_documents inv ON inv.receipt_id=cr.id
+    WHERE cr.store_id=? AND (UPPER(cr.reference)=? OR UPPER(cr.quotation_reference)=? OR UPPER('INV-'||SUBSTR(cr.reference,4))=? OR UPPER(inv.invoice_number)=?)`)
+    .bind(store,ref,ref,ref,ref).first();
    if(!paid)return fail('No verified paid invoice found. DO NOT RELEASE GOODS.',404);
-   return json({verified_paid:true,order:{...paid,invoice_reference:'INV-'+String((paid as any).receipt_reference).replace(/^RC-/,'')}});
+   return json({verified_paid:true,order:{...paid,invoice_reference:(paid as any).registered_invoice_number||('INV-'+String((paid as any).receipt_reference).replace(/^RC-/,''))}});
   }
   if(path==='/api/dispatch/progress'&&req.method==='POST'){
    const b=await req.json() as Record<string,unknown>;

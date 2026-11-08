@@ -41,6 +41,15 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   }
   if(path==='/api/logout'&&req.method==='POST'){const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(token)await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(token)).run();return json({ok:true},200,{'set-cookie':expired})}
   const user=await auth(req,db);if(!user)return fail('Sign in required',401);if(!allowed(user))return fail('Stock Office only',403);
+  if(path==='/api/document-branding'&&req.method==='GET'){
+   const store=clean(url.searchParams.get('store_id'),64);
+   if(!await scope(db,user,store))return fail('Store access required',403);
+   const base=await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind('__company__').first<Record<string,string>>();
+   const local=await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind(store).first<Record<string,string>>();
+   const s=await db.prepare('SELECT name,address,phone FROM stores WHERE id=?').bind(store).first<Record<string,string>>();
+   const business=await db.prepare('SELECT name,trading_name,address,phone,email FROM business WHERE id=?').bind('primary').first<Record<string,string>>();
+   return json({branding:{store_id:store,store_name:s?.name||'',company_name:business?.name||'',display_name:local?.display_name||s?.name||base?.display_name||business?.trading_name||business?.name||'',address:local?.address||s?.address||base?.address||business?.address||'',phone:local?.phone||s?.phone||base?.phone||business?.phone||'',email:local?.email||base?.email||business?.email||'',logo_data:local?.logo_data||base?.logo_data||''}});
+  }
   if(path==='/api/stores'&&req.method==='GET'){
    const items=canReview(user)?await rows(db,'SELECT id,name,code FROM stores WHERE active=1 ORDER BY name'):await rows(db,'SELECT s.id,s.name,s.code FROM stores s JOIN user_stores us ON us.store_id=s.id WHERE us.user_id=? AND s.active=1 ORDER BY s.name',user.id);
    return json({items});

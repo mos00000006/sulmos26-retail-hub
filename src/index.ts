@@ -121,6 +121,33 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const token=req.headers.get('cookie')?.match(/(?:^|;\s*)sulmos_session=([a-f0-9]{64})/)?.[1];if(token)await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(token)).run();return json({ok:true},200,{'set-cookie':expiredCookie(url.protocol==='https:')});
  }
  const u=await auth(req,db);if(!u)return fail('Sign in required',401);
+  // Document branding is shared by every desk. Viewing is limited to assigned stores.
+  if(path==='/api/document-branding'){
+   const sid=clean(url.searchParams.get('store_id')||'',64);
+   if(req.method==='GET'){
+    if(!sid)return fail('Select a store',400);
+    if(sid==='__company__' && !['owner','manager'].includes(u.role))return fail('Management access required',403);
+    if(sid!=='__company__' && !await scopedStore(db,u,sid))return fail('Store access required',403);
+    const company=await db.prepare('SELECT name,trading_name,email,phone,address FROM business WHERE id=?').bind('primary').first<{name:string;trading_name:string;email:string;phone:string;address:string}>();
+    const store=sid==='__company__'?null:await db.prepare('SELECT name,phone,address FROM stores WHERE id=?').bind(sid).first<{name:string;phone:string;address:string}>();
+    const defaultBrand=await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind('__company__').first<{display_name:string;address:string;phone:string;email:string;logo_data:string}>();
+    const custom=sid==='__company__'?defaultBrand:await db.prepare('SELECT display_name,address,phone,email,logo_data FROM document_branding WHERE store_id=?').bind(sid).first<{display_name:string;address:string;phone:string;email:string;logo_data:string}>();
+    return json({branding:{store_id:sid,store_name:store?.name||'',company_name:company?.name||'',display_name:custom?.display_name||store?.name||defaultBrand?.display_name||company?.trading_name||company?.name||'',address:custom?.address||store?.address||defaultBrand?.address||company?.address||'',phone:custom?.phone||store?.phone||defaultBrand?.phone||company?.phone||'',email:custom?.email||defaultBrand?.email||company?.email||'',logo_data:custom?.logo_data||defaultBrand?.logo_data||'',customized:!!custom}});
+   }
+   if(req.method==='POST'){
+    if(u.role!=='owner')return fail('Only the owner can edit printing identities',403);
+    if(!sid)return fail('Select a store',400);
+    if(sid!=='__company__' && !await scopedStore(db,u,sid))return fail('Store not found',404);
+    const data=await body(req),label=clean(data.display_name,120),addr=clean(data.address,300),phone=clean(data.phone,50),email=clean(data.email,180),logo=clean(data.logo_data,225000);
+    if(!label)return fail('Document display name is required');
+    if(typeof data.logo_data==='string' && data.logo_data.length>225000)return fail('Logo too large. Resize to under 160 KB.',413);
+    if(logo && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo))return fail('Upload a PNG, JPG or WebP logo',400);
+    if(logo && logo.length>220000)return fail('Logo too large',413);
+    await db.prepare(`INSERT INTO document_branding(store_id,display_name,address,phone,email,logo_data,updated_by,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(store_id) DO UPDATE SET display_name=excluded.display_name,address=excluded.address,phone=excluded.phone,email=excluded.email,logo_data=excluded.logo_data,updated_by=excluded.updated_by,updated_at=excluded.updated_at`).bind(sid,label,addr,phone,email,logo,u.id,now()).run();
+    await log(db,u.id,'update','document_branding',sid,'Updated store/customer document identity');
+    return json({ok:true});
+   }
+  }
  // Cashier accounts cannot access management, sales, stock or dispatch API endpoints.
  if(u.role==='cashier' && !(path==='/api/stores'&&req.method==='GET') && !(path==='/api/logout'&&req.method==='POST') && !(path.startsWith('/api/cash-office/')&&req.method==='GET'||path==='/api/cash-office/payment'&&req.method==='POST'))return fail('Cash Office access only',403);
  if(path==='/api/my-username'&&req.method==='POST'){
@@ -471,6 +498,68 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   const items=await rows(db,'SELECT q.id,q.reference,q.customer_name,q.total_cents,q.discount_cents,q.status,q.created_at FROM quotations q WHERE q.customer_id=? AND q.store_id=? ORDER BY q.created_at DESC LIMIT 50',customer.id,customer.store_id);
   return json({customer,items});
  }
+ // V33: paid commercial invoices, serialised with the cash receipt INSERT trigger.
+ // A paid document is NOT labelled as a VAT tax invoice without verified VAT setup and per-product tax classes.
+ if(path==='/api/cash-office/invoice'&&req.method==='GET'){
+  if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
+  const reference=clean(url.searchParams.get('reference'),100).toUpperCase();
+  if(!/^RC-[A-Z0-9-]{5,90}$/.test(reference))return fail('Enter the exact paid receipt reference');
+  const doc=await db.prepare(`SELECT i.invoice_number,i.document_kind,i.issued_at,i.amount_cents,i.quotation_reference,
+    i.customer_name,i.customer_phone,i.customer_lines_json lines_json,i.supplier_name,i.supplier_address,
+    i.store_id,r.reference receipt_reference,r.cashier_id,r.method,r.paid_at,s.name store_name,
+    cashier.name cashier_name FROM invoice_documents i JOIN cash_receipts r ON r.id=i.receipt_id
+    JOIN stores s ON s.id=i.store_id JOIN users cashier ON cashier.id=r.cashier_id WHERE r.reference=?`)
+    .bind(reference).first<{store_id:string;cashier_id:string}>();
+  if(!doc||!await scopedStore(db,u,doc.store_id)||u.role==='cashier'&&doc.cashier_id!==u.id)return fail('Paid invoice not found',404);
+  return json({invoice:doc,tax_invoice:false,notice:'Paid sales document. NOT a VAT tax invoice. VAT classification and supplier verification required.'});
+ }
+ if(path==='/api/billing/invoices'&&req.method==='GET'){
+  if(u.role!=='owner')return fail('Owner access required',403);
+  const store=clean(url.searchParams.get('store_id'),64);
+  const invoices=await rows(db,`SELECT i.invoice_number,i.issued_at,i.store_id,s.name store_name,
+    i.receipt_id,r.reference receipt_reference,i.quotation_reference,i.customer_name,i.amount_cents,i.document_kind
+    FROM invoice_documents i JOIN cash_receipts r ON r.id=i.receipt_id JOIN stores s ON s.id=i.store_id
+    WHERE (?='' OR i.store_id=?) ORDER BY i.id DESC LIMIT 200`,store,store);
+  return json({items:invoices,document_kind:'paid_sales_document',tax_invoice:false});
+ }
+ // Requests are deliberately separate from refund/payment/stock/invoice issuance.
+ if(path==='/api/billing/credit-requests'&&req.method==='POST'){
+  if(!['owner','manager'].includes(u.role))return fail('Management approval required',403);
+  const b=await body(req),reference=clean(b.invoice_number,40).toUpperCase(),reason=clean(b.reason,300),amount=Number(b.amount_cents);
+  if(!/^INV-\d{8}$/.test(reference)||reason.length<8||!Number.isSafeInteger(amount)||amount<=0)return fail('Valid invoice number, amount and reason (8+ characters) are required');
+  const invoice=await db.prepare('SELECT id,store_id,amount_cents FROM invoice_documents WHERE invoice_number=?').bind(reference).first<{id:number;store_id:string;amount_cents:number}>();
+  if(!invoice||!await scopedStore(db,u,invoice.store_id))return fail('Invoice not found at assigned store',404);
+  const outstanding=await db.prepare("SELECT COALESCE(SUM(amount_cents),0) AS n FROM credit_note_requests WHERE invoice_id=? AND status IN ('pending','approved')").bind(invoice.id).first<{n:number}>();
+  if(amount>invoice.amount_cents-Number(outstanding?.n||0))return fail('Credit request exceeds remaining uncredited amount',409);
+  const id=uid(),created=now();
+  await db.prepare(`INSERT INTO credit_note_requests(id,invoice_id,store_id,amount_cents,reason,status,requested_by,requested_at)
+    SELECT ?,i.id,i.store_id,?,?,'pending',?,? FROM invoice_documents i WHERE i.id=? AND
+    (SELECT COALESCE(SUM(x.amount_cents),0) FROM credit_note_requests x WHERE x.invoice_id=i.id AND x.status IN ('pending','approved'))+?<=i.amount_cents`)
+    .bind(id,amount,reason,u.id,created,invoice.id,amount).run();
+  const saved=await db.prepare('SELECT id FROM credit_note_requests WHERE id=?').bind(id).first();
+  if(!saved)return fail('The invoice credit balance changed. Refresh and retry.',409);
+  await log(db,u.id,'credit_request','invoice_document',reference,JSON.stringify({amount_cents:amount,reason}));
+  return json({ok:true,request:{id,invoice_number:reference,amount_cents:amount,status:'pending',refund_processed:false,stock_posted:false}},201);
+ }
+ if(path==='/api/billing/credit-requests'&&req.method==='GET'){
+  if(u.role!=='owner')return fail('Owner access required',403);
+  const result=await rows(db,`SELECT x.id,i.invoice_number,x.store_id,x.amount_cents,x.reason,x.status,x.requested_at,x.requested_by,x.reviewed_at,x.reviewed_by
+    FROM credit_note_requests x JOIN invoice_documents i ON i.id=x.invoice_id ORDER BY x.requested_at DESC LIMIT 200`);
+  return json({items:result,notice:'Approval records only. No VAT credit note, refund or inventory movement created.'});
+ }
+ if(path.startsWith('/api/billing/credit-requests/')&&req.method==='POST'){
+  if(u.role!=='owner')return fail('Only the owner may review credit requests',403);
+  const id=path.slice('/api/billing/credit-requests/'.length),b=await body(req),decision=clean(b.decision,20);
+  if(!['approve','reject'].includes(decision))return fail('Choose approve or reject');
+  const current=await db.prepare('SELECT requested_by,status FROM credit_note_requests WHERE id=?').bind(id).first<{requested_by:string;status:string}>();
+  if(!current)return fail('Credit request not found',404);
+  if(current.requested_by===u.id)return fail('An independent owner reviewer is required',403);
+  const result=await db.prepare('UPDATE credit_note_requests SET status=?,reviewed_by=?,reviewed_at=? WHERE id=? AND status=\'pending\'')
+   .bind(decision==='approve'?'approved':'rejected',u.id,now(),id).run();
+  if(Number(result.meta?.changes||0)!==1)return fail('Credit request already reviewed',409);
+  await log(db,u.id,'credit_request_review','credit_request',id,decision);
+  return json({ok:true,status:decision==='approve'?'approved':'rejected',refund_processed:false,tax_credit_note_issued:false});
+ }
  // Cash Office is the only module permitted to record payment. No stock movement occurs here.
  if(path==='/api/cash-office/payment'&&req.method==='POST'){
   if(!['owner','cashier'].includes(u.role))return fail('Cashier access required',403);
@@ -503,7 +592,8 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
    throw e;
   }
   await log(db,u.id,'cash_payment','cash_receipt',id,JSON.stringify({quotation:reference,store_id:store,method,amount_cents:expected}));
-  return json({ok:true,receipt:{id,reference:receipt,quotation_reference:reference,amount_cents:expected,method,tendered_cents:tendered,change_cents:tendered-expected,paid_at:paidAt},stock_deducted:false},201);
+  const invoice=await db.prepare('SELECT invoice_number FROM invoice_documents WHERE receipt_id=?').bind(id).first<{invoice_number:string}>();
+  return json({ok:true,receipt:{id,reference:receipt,quotation_reference:reference,amount_cents:expected,method,tendered_cents:tendered,change_cents:tendered-expected,paid_at:paidAt},invoice_number:invoice?.invoice_number||null,tax_invoice:false,stock_deducted:false},201);
  }
  if(path==='/api/cash-office/receipts'&&req.method==='GET'){
   if(!['owner','manager','cashier'].includes(u.role))return fail('Cash Office access required',403);
