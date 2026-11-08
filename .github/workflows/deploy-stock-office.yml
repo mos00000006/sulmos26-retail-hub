@@ -1,0 +1,40 @@
+name: Deploy SULMOS26 Stock Office (Separate Worker)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sulmos26-stock-office-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    name: Deploy Stock Office
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check Stock Office scripts
+        run: |
+          node --check public-stock/app.js
+          node --test tests/stock-office-v34.test.mjs
+      - name: Check core build and test suite
+        run: npm run check
+      - name: Prepare separate Worker
+        run: node .github/scripts/prepare-stock-office-deploy.mjs
+        env:
+          SULMOS26_D1_DATABASE_ID: ${{ secrets.SULMOS26_D1_DATABASE_ID }}
+      - name: Apply stock office migration 0012 to shared D1
+        run: npx wrangler d1 migrations apply sulmos26-db --remote --config wrangler.stock.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy separate Stock Office Worker
+        run: npx wrangler deploy --config wrangler.stock.deploy.jsonc
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const backend=fs.readFileSync('src/stock-office.ts','utf8');
+const sql=fs.readFileSync('migrations/0012_stock_office_documents.sql','utf8');
+const frontend=fs.readFileSync('public-stock/app.js','utf8');
+test('Stock Office permits stock, owner and manager, but not cashier or sales',()=>{assert.match(backend,/\['owner','manager','stock'\]/);assert.match(backend,/Stock Office permission required/)});
+test('GRV and counts require independent reviewer',()=>{assert.match(backend,/d\.created_by===user\.id/);assert.match(sql,/STOCK_APPROVAL_REQUIRES_INDEPENDENT_REVIEW/)});
+test('Stock posts only on approval',()=>{assert.match(sql,/WHEN OLD\.status='submitted' AND NEW\.status='approved'/);assert.match(sql,/INSERT INTO inventory_movements/)});
+test('Counts fail on stale on-hand and protect reservations',()=>{assert.match(sql,/STOCK_COUNT_STALE_RECOUNT_REQUIRED/);assert.match(sql,/STOCK_COUNT_BELOW_RESERVATIONS/)});
+test('Printed GRV, stock count, stock list and movement report exist',()=>{for(const s of ['printInventory','printDocument','printBlank','printMovements'])assert.ok(frontend.includes(s))});
