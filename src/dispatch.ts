@@ -63,7 +63,7 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
      LEFT JOIN dispatch_fulfilments df ON df.receipt_id=cr.id
      WHERE cr.store_id=? ORDER BY cr.paid_at DESC LIMIT 200`).bind(store).all();
    const items=(result.results||[]).map((x:any)=>({...x,invoice_reference:'INV-'+String(x.receipt_reference||'').replace(/^RC-/,'')}));
-   return json({items,summary:{paid_orders:items.length,awaiting_picking:items.filter((x:any)=>x.dispatch_state==='awaiting_picking').length,picking:items.filter((x:any)=>x.dispatch_state==='picking').length,ready:items.filter((x:any)=>x.dispatch_state==='ready').length,released:items.filter((x:any)=>x.dispatch_state==='released').length},stock_deducted:false});
+   return json({items,summary:{paid_orders:items.length,awaiting_picking:items.filter((x:any)=>x.dispatch_state==='awaiting_picking').length,picking:items.filter((x:any)=>x.dispatch_state==='picking').length,ready:items.filter((x:any)=>x.dispatch_state==='ready').length,released:items.filter((x:any)=>x.dispatch_state==='released').length},stock_posted_on_release:true});
   }
   if(path==='/api/dispatch/verify'&&req.method==='GET'){
    const store=clean(url.searchParams.get('store_id'),64);
@@ -113,8 +113,8 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
       .bind(next,timestamp,next,user.id,next,timestamp,next,user.id,next,timestamp,next,collector,next,note,payer.id,store,prev).run();
     if(Number(result.meta?.changes||0)!==1)return fail('Order changed or no longer verified. Refresh.',409);
    }
-   return json({ok:true,receipt_reference:receipt,state:next,stock_posted:false,message:next==='released'?'Goods handover recorded; stock posting remains outstanding.':'Dispatch status updated.'});
+   return json({ok:true,receipt_reference:receipt,state:next,stock_posted:next==='released',message:next==='released'?'Goods released. Stock deducted in the same database transaction.':'Dispatch status updated.'});
   }
   return fail('Endpoint not available in Dispatch Desk',404);
- }catch(e){console.error('SULMOS26_DISPATCH_ERROR',e instanceof Error?e.name:'unknown');return fail('Request could not be completed. Check the Dispatch deployment and database permissions.',500)}
+ }catch(e){if(e instanceof Error&&/STOCK_INSUFFICIENT_OR_NOT_RECORDED|STOCK_EMPTY_QUOTATION|STOCK_INVALID_LINE_QTY|STOCK_INVALID_QUOTE_LINES/.test(e.message))return fail('Cannot release: stock not recorded, insufficient, or invalid quotation quantities. Verify inventory in the Hub.',409);console.error('SULMOS26_DISPATCH_ERROR',e instanceof Error?e.name:'unknown');return fail('Request could not be completed. Check the Dispatch deployment and database permissions.',500)}
 }};

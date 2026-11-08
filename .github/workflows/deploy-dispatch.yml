@@ -42,4 +42,4 @@ jobs:
         run: |
           echo '### SULMOS26 Dispatch deployed' >> "$GITHUB_STEP_SUMMARY"
           echo 'Separate blue Dispatch Desk Worker using existing SULMOS26 D1.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'V31: Payment-verified pick, ready, release history. Stock ledger posting is not automatic.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'V32: Dispatch release posts inventory ledger atomically; stock must be sufficient.' >> "$GITHUB_STEP_SUMMARY"

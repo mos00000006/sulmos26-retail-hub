@@ -200,11 +200,30 @@ export default {async fetch(req:Request,env:Env):Promise<Response>{
   if(!['owner','manager','sales'].includes(u.role))return fail('Sales access required',403);
   const store=clean(url.searchParams.get('store_id'),60),sku=clean(url.searchParams.get('sku'),100).toUpperCase();
   if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
-  const sql=`SELECT ss.store_id,s.name store_name,ss.sku,p.name product_name,ss.on_hand,ss.updated_at,ss.updated_by,
-   COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=ss.store_id AND r.sku=ss.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
-   FROM stock_snapshots ss JOIN stores s ON s.id=ss.store_id JOIN products p ON p.sku=ss.sku`;
-  const items=sku?await rows(db,sql+' WHERE ss.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE ss.store_id=? ORDER BY p.name LIMIT 300',store);
-  return json({items:items.map(x=>{const a=x as Record<string,unknown> & {on_hand:number;reserved:number};return {...a,available:Math.max(0,a.on_hand-a.reserved)}}),basis:'manager_snapshot',live:false});
+  const sql=`SELECT b.store_id,s.name store_name,b.sku,p.name product_name,b.on_hand,b.updated_at,
+   COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=b.store_id AND r.sku=b.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
+   FROM inventory_balances b JOIN stores s ON s.id=b.store_id JOIN products p ON p.sku=b.sku`;
+  const items=sku?await rows(db,sql+' WHERE b.sku=? ORDER BY s.name',sku):await rows(db,sql+' WHERE b.store_id=? ORDER BY p.name LIMIT 1000',store);
+  return json({items:items.map(x=>{const a=x as Record<string,unknown> & {on_hand:number;reserved:number};return {...a,available:Math.max(0,a.on_hand-a.reserved)}}),basis:'inventory_ledger',live:true,stock_posted_at:'dispatch_release'});
+ }
+ // Read-only per-store availability endpoint. No missing product becomes an invented zero.
+ if(path==='/api/inventory/availability'&&req.method==='GET'){
+  if(!['owner','manager','sales'].includes(u.role))return fail('Sales access required',403);
+  const store=clean(url.searchParams.get('store_id'),60);
+  if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
+  const items=await rows(db,`SELECT p.sku,p.name,b.on_hand,b.updated_at,
+   COALESCE((SELECT SUM(r.qty) FROM stock_requests r WHERE r.store_id=? AND r.sku=p.sku AND r.kind='reservation' AND r.status='approved'),0) reserved
+   FROM products p LEFT JOIN inventory_balances b ON b.sku=p.sku AND b.store_id=? WHERE p.active=1 ORDER BY p.name LIMIT 2000`,store,store);
+  return json({store_id:store,items:items.map((x:any)=>({...x,recorded:x.on_hand!==null,available:x.on_hand===null?null:Math.max(0,Number(x.on_hand)-Number(x.reserved))})),basis:'inventory_ledger'});
+ }
+ if(path==='/api/inventory/movements'&&req.method==='GET'){
+  if(!['owner','manager'].includes(u.role))return fail('Management access required',403);
+  const store=clean(url.searchParams.get('store_id'),60),sku=clean(url.searchParams.get('sku'),100).toUpperCase();
+  if(!store||!await scopedStore(db,u,store))return fail('Assigned store required',403);
+  const items=await rows(db,`SELECT m.id,m.sku,p.name product_name,m.qty_delta,m.reason,m.source_id,m.created_at,u.name actor_name
+    FROM inventory_movements m JOIN products p ON p.sku=m.sku LEFT JOIN users u ON u.id=m.actor_id
+    WHERE m.store_id=? AND (?='' OR m.sku=?) ORDER BY m.created_at DESC LIMIT 300`,store,sku,sku);
+  return json({items,immutable:true});
  }
  if(path==='/api/sales-stock/snapshot'&&req.method==='POST'){
   if(!['owner','manager'].includes(u.role))return fail('Only management can enter stock snapshots',403);
