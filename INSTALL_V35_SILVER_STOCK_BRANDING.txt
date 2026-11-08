@@ -1,0 +1,22 @@
+SULMOS26 V35 — STOCK OFFICE SILVER BRANDING ONLY
+
+Uses the exact silver logo uploaded by the user on the Stock Office login and sidebar.
+Installs a silver + charcoal SM symbol as the Stock Office icon on Windows/mobile.
+Does NOT change Green Hub, Red POS, Cash Office, Dispatch, D1, APIs, or stock accounting.
+
+REPLACE these files in the GitHub repository in their matching public-stock locations:
+public-stock/index.html
+public-stock/manifest.webmanifest
+public-stock/app.js
+public-stock/styles.css
+public-stock/assets/icon-48.png
+public-stock/assets/icon-192.png
+public-stock/assets/icon-512.png
+public-stock/assets/apple-touch-icon.png
+public-stock/assets/sulmos26-stock-office-logo.png
+
+Commit to main. Run GitHub Actions > Deploy SULMOS26 Stock Office (Separate Worker).
+Open the Stock Office site in Chrome and hard refresh. If the old installed icon persists,
+uninstall ONLY the Stock Office app and reinstall it from Chrome.
+
+This patch retains the V34 Stock Office functionality unchanged.

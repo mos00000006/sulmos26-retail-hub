@@ -1,1 +1,24 @@
-{"name":"SULMOS26 Stock Office","short_name":"SULMOS26 Stock","description":"Controlled inventory, GRVs, stock count, printing","start_url":"/","scope":"/","display":"standalone","theme_color":"#146b64","background_color":"#ffffff","icons":[{"src":"/assets/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/assets/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
+{
+  "name": "SULMOS26 Stock Office",
+  "short_name": "SULMOS26 Stock",
+  "description": "Controlled inventory, GRVs, stock count, printing",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#C0C4C8",
+  "background_color": "#FFFFFF",
+  "icons": [
+    {
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
